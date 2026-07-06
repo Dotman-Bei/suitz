@@ -33,6 +33,7 @@ next-env.d.ts
 !.vscode/extensions.json
 .idea
 
-# internal planning / bounty spec — not part of the published project
-ROADMAP.md
-bounty_requirements.md
+# markdown — ignore everything except the published README
+# (internal planning / bounty spec / notes stay local)
+*.md
+!README.md
