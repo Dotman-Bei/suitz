@@ -1,0 +1,36 @@
+{
+  "name": "suitz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "suitz — the confidential wrapper registry for Zama ERC-20 ↔ ERC-7984 pairs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
+    "@tanstack/react-query": "^5.101.2",
+    "@zama-fhe/relayer-sdk": "^0.4.4",
+    "ethers": "^6.17.0",
+    "framer-motion": "^12.42.0",
+    "next": "^14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "viem": "^2.54.0",
+    "wagmi": "^2.19.5"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.12",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "10.4.19",
+    "postcss": "8.4.40",
+    "tailwindcss": "3.4.7",
+    "typescript": "5.5.4"
+  }
+}

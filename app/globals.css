@@ -1,0 +1,431 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   suitz — design system
+   A monochrome, editorial surface. Craft lives in spacing, rules, type and the
+   "encrypted → revealed" motif, not in colour. Functional red only on errors.
+   ========================================================================== */
+
+@layer base {
+  :root {
+    --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+    --keytile-radius: 3px;
+
+    /* self-hosted font stacks (see @fontsource imports in layout.tsx) */
+    --font-display: "Space Grotesk", system-ui, sans-serif;
+    --font-sans: "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  }
+
+  * {
+    border-color: theme("colors.line.DEFAULT");
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: theme("colors.paper.DEFAULT");
+    color: theme("colors.ink.900");
+    font-family: theme("fontFamily.sans");
+    font-feature-settings: "ss01", "cv01", "cv11";
+    /* faint engineering grid — present but almost subliminal */
+    background-image:
+      linear-gradient(theme("colors.line.DEFAULT") 1px, transparent 1px),
+      linear-gradient(90deg, theme("colors.line.DEFAULT") 1px, transparent 1px);
+    background-size: 56px 56px;
+    background-position: -1px -1px;
+    background-attachment: fixed;
+    background-blend-mode: normal;
+    opacity: 1;
+  }
+
+  /* the grid should whisper, not shout */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: theme("colors.paper.DEFAULT");
+    opacity: 0.86;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  ::selection {
+    background: theme("colors.ink.900");
+    color: theme("colors.paper.DEFAULT");
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.ink.900");
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: theme("fontFamily.display");
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+
+  /* thin custom scrollbar — quiet, monochrome */
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme("colors.ink.200");
+    border: 3px solid theme("colors.paper.DEFAULT");
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme("colors.ink.300");
+  }
+}
+
+@layer components {
+  /* --- shell -------------------------------------------------------------- */
+  .shell {
+    @apply mx-auto w-full max-w-shell px-5 sm:px-8;
+  }
+
+  /* --- section index labels (01 — Registry) ------------------------------- */
+  .eyebrow {
+    @apply font-mono text-2xs uppercase tracking-[0.18em] text-ink-500;
+  }
+  .section-head {
+    @apply flex items-baseline gap-3 border-b border-line pb-4;
+  }
+  .section-index {
+    @apply font-mono text-2xs tabular-nums text-ink-400;
+  }
+
+  /* --- buttons ------------------------------------------------------------ */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-sm
+      border border-transparent px-4 py-2.5 font-sans text-sm font-medium
+      leading-none transition-all duration-150;
+    transition-timing-function: var(--ease-out);
+  }
+  .btn:disabled {
+    @apply cursor-not-allowed opacity-40;
+  }
+  .btn-primary {
+    @apply bg-ink-900 text-paper;
+  }
+  .btn-primary:not(:disabled):hover {
+    @apply -translate-y-px bg-ink-700;
+  }
+  .btn-primary:not(:disabled):active {
+    @apply translate-y-0;
+  }
+  .btn-outline {
+    @apply border-line-strong bg-paper text-ink-900;
+  }
+  .btn-outline:not(:disabled):hover {
+    @apply border-ink-900 bg-paper-raised;
+  }
+  .btn-ghost {
+    @apply text-ink-600;
+  }
+  .btn-ghost:not(:disabled):hover {
+    @apply bg-ink-100 text-ink-900;
+  }
+  .btn-danger {
+    @apply border-signal-error/30 bg-signal-errorbg text-signal-error;
+  }
+  .btn-danger:not(:disabled):hover {
+    @apply border-signal-error/60;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn-lg {
+    @apply px-5 py-3 text-[0.95rem];
+  }
+
+  /* --- surfaces ----------------------------------------------------------- */
+  .card {
+    @apply rounded-md border border-line bg-paper;
+  }
+  .card-raised {
+    @apply rounded-md border border-line bg-paper-raised;
+  }
+  .panel {
+    @apply rounded-lg border border-line bg-paper p-6 sm:p-7;
+  }
+
+  /* --- badges / tags ------------------------------------------------------ */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-xs border px-2 py-0.5
+      font-mono text-2xs uppercase tracking-[0.08em];
+  }
+  .badge-official {
+    @apply border-ink-900 bg-ink-900 text-paper;
+  }
+  .badge-local {
+    @apply border-line-strong bg-paper text-ink-600;
+  }
+  .badge-muted {
+    @apply border-line bg-paper-sunken text-ink-500;
+  }
+
+  /* --- fields ------------------------------------------------------------- */
+  .field-label {
+    @apply mb-2 block font-mono text-2xs uppercase tracking-[0.12em] text-ink-500;
+  }
+  .input {
+    @apply w-full rounded-sm border border-line-strong bg-paper px-3.5 py-3
+      font-mono text-sm text-ink-900 placeholder:text-ink-300
+      transition-colors duration-150;
+  }
+  .input:focus {
+    @apply border-ink-900 outline-none;
+  }
+  .input-shell {
+    @apply flex items-stretch overflow-hidden rounded-sm border border-line-strong
+      bg-paper transition-colors focus-within:border-ink-900;
+  }
+  .input-shell .input {
+    @apply border-0 focus:border-0;
+  }
+
+  /* --- mono labels & data ------------------------------------------------- */
+  .mono-label {
+    @apply font-mono text-2xs uppercase tracking-[0.14em] text-ink-500;
+  }
+  .addr {
+    @apply inline-flex items-center gap-1.5 font-mono text-xs text-ink-600;
+  }
+
+  /* --- rules / dividers --------------------------------------------------- */
+  .rule {
+    @apply h-px w-full bg-line;
+  }
+  .rule-dashed {
+    background-image: repeating-linear-gradient(
+      90deg,
+      theme("colors.line.strong") 0 6px,
+      transparent 6px 12px
+    );
+    @apply h-px w-full;
+  }
+
+  /* --- tabs --------------------------------------------------------------- */
+  .tab {
+    @apply relative inline-flex items-center gap-2 whitespace-nowrap py-4 text-sm
+      font-medium text-ink-400 transition-colors duration-150;
+  }
+  .tab:hover {
+    @apply text-ink-700;
+  }
+  .tab[data-active="true"] {
+    @apply text-ink-900;
+  }
+  .tab[data-active="true"]::after {
+    content: "";
+    @apply absolute inset-x-0 -bottom-px h-0.5 bg-ink-900;
+  }
+  .tab-index {
+    @apply font-mono text-2xs tabular-nums text-ink-300;
+  }
+  .tab[data-active="true"] .tab-index {
+    @apply text-ink-900;
+  }
+
+  /* --- stepper (wrap / unwrap flows) ------------------------------------- */
+  .step {
+    @apply flex items-center gap-3 py-3;
+  }
+  .step-dot {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full
+      border border-line-strong bg-paper font-mono text-2xs text-ink-400;
+  }
+  .step[data-state="active"] .step-dot {
+    @apply border-ink-900 bg-ink-900 text-paper;
+  }
+  .step[data-state="done"] .step-dot {
+    @apply border-ink-900 bg-paper text-ink-900;
+  }
+  .step[data-state="pending"] .step-label {
+    @apply text-ink-400;
+  }
+
+  /* --- alerts ------------------------------------------------------------- */
+  .alert {
+    @apply flex items-start gap-3 rounded-sm border px-4 py-3 text-sm;
+  }
+  .alert-error {
+    @apply border-signal-error/25 bg-signal-errorbg text-signal-error;
+  }
+  .alert-info {
+    @apply border-line bg-paper-sunken text-ink-700;
+  }
+
+  /* --- table -------------------------------------------------------------- */
+  .reg-table {
+    @apply w-full border-separate border-spacing-0;
+  }
+  .reg-table thead th {
+    @apply border-b border-line bg-paper px-4 py-3 text-left font-mono text-2xs
+      uppercase tracking-[0.12em] text-ink-400;
+  }
+  .reg-table tbody td {
+    @apply border-b border-line px-4 py-4 align-middle;
+  }
+  .reg-row {
+    @apply transition-colors duration-100;
+  }
+  .reg-row:hover td {
+    @apply bg-paper-raised;
+  }
+
+  /* --- keyboard key ------------------------------------------------------- */
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-xs border
+      border-line-strong bg-paper-raised px-1.5 font-mono text-2xs text-ink-500;
+  }
+}
+
+/* ============================================================================
+   Logo — "suitz." A plain, confident wordmark in the display face. Colour
+   follows the surface (ink on light, paper on dark). The trailing dot is the
+   only flourish.
+   ========================================================================== */
+@layer components {
+  .logo-word {
+    font-family: theme("fontFamily.display");
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    font-size: 1.5rem;
+    display: inline-flex;
+    align-items: baseline;
+    user-select: none;
+  }
+  .logo-dot {
+    margin-left: -0.03em;
+    transition: opacity 280ms var(--ease-out);
+  }
+  .logo-word:hover .logo-dot {
+    opacity: 0.45;
+  }
+
+  /* solid square mark (favicons / avatars / empty states) */
+  .logo-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--keytile-radius);
+    font-family: theme("fontFamily.display");
+    font-weight: 700;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* hollow (outlined) display type — echoes the white confidential glyphs */
+  .hollow {
+    color: transparent;
+    -webkit-text-stroke: 2px theme("colors.ink.900");
+  }
+  .hollow-thin {
+    color: transparent;
+    -webkit-text-stroke: 1.4px theme("colors.ink.900");
+  }
+  .on-dark .hollow,
+  .on-dark .hollow-thin {
+    -webkit-text-stroke-color: #ffffff;
+  }
+
+  /* moving construction grid for hero / band backgrounds */
+  .bg-grid {
+    background-image:
+      linear-gradient(theme("colors.line.DEFAULT") 1px, transparent 1px),
+      linear-gradient(90deg, theme("colors.line.DEFAULT") 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  .bg-grid-dark {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  /* glassmorphism — only reads well over texture/motion, used sparingly */
+  .glass {
+    background: rgba(255, 255, 255, 0.55);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    backdrop-filter: blur(18px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 16px 48px -18px rgba(10, 10, 10, 0.24),
+      inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  }
+  .glass-dark {
+    background: rgba(10, 10, 10, 0.42);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 16px 48px -18px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* skeleton shimmer for loading rows */
+  .skeleton {
+    @apply relative overflow-hidden rounded-xs bg-ink-100;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.85),
+      transparent
+    );
+    animation: scan 1.1s ease-in-out infinite;
+  }
+
+  /* ---- the signature motif: ciphertext that decrypts ---- */
+  .ciphertext {
+    @apply font-mono tabular text-ink-400 select-none;
+    filter: blur(0.4px);
+    letter-spacing: 0.06em;
+  }
+  .ciphertext-strong {
+    @apply font-mono tabular text-ink-300 select-none;
+    filter: blur(2.5px);
+    letter-spacing: 0.12em;
+  }
+  .revealed {
+    @apply animate-reveal-blur font-mono tabular text-ink-900;
+  }
+
+  /* faint hatch fill used behind encrypted handles */
+  .hatch {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      theme("colors.ink.100") 0 1px,
+      transparent 1px 7px
+    );
+  }
+}
