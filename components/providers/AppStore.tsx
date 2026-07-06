@@ -9,15 +9,24 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import type { ConfidentialBalance, RevealState } from "@/lib/types";
-import { fakeCiphertext } from "@/lib/format";
+import type { RevealState } from "@/lib/types";
 
 export type Tab = "registry" | "wrap" | "decrypt" | "faucet";
 
-/** Confidential entry keeps the true cleartext `amount` hidden from the UI;
- *  components only ever render `state` / `revealed`. */
-interface ConfEntry extends ConfidentialBalance {
+/**
+ * A confidential (ERC-7984) balance as the UI tracks it across tabs.
+ *
+ * There is deliberately no ciphertext handle here: the real euint64 handle is
+ * read fresh from `confidentialBalanceOf` at decrypt time (see DecryptView /
+ * WrapView). This store only caches the *result* of a decryption plus an
+ * optimistic post-wrap amount, shared so the Unwrap tab's MAX and balance
+ * checks stay in sync with what the Decrypt tab revealed. The true cleartext
+ * `amount` stays hidden — components only ever render `state` / `revealed`.
+ */
+interface ConfEntry {
   amount: number;
+  state: RevealState;
+  revealed?: string;
 }
 
 interface Store {
@@ -27,13 +36,9 @@ interface Store {
   selectedPairId: string | null;
   decryptTarget: string | null;
   setDecryptTarget: (a: string | null) => void;
+  selectPair: (pairId: string) => void;
   goWrap: (pairId: string) => void;
   goDecrypt: (address: string) => void;
-
-  // ERC-20 (underlying) balances, keyed by underlying symbol
-  erc20: Record<string, number>;
-  addErc20: (symbol: string, amount: number) => void;
-  subErc20: (symbol: string, amount: number) => void;
 
   // confidential (ERC-7984) balances, keyed by confidential symbol
   conf: Record<string, ConfEntry>;
@@ -49,8 +54,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [tab, setTab] = useState<Tab>("registry");
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
   const [decryptTarget, setDecryptTarget] = useState<string | null>(null);
-  const [erc20, setErc20] = useState<Record<string, number>>({});
   const [conf, setConf] = useState<Record<string, ConfEntry>>({});
+
+  // Change the active pair without navigating — used when already on the Wrap
+  // tab, so it doesn't trigger the router.push scroll-to-top that goWrap does.
+  const selectPair = useCallback((pairId: string) => setSelectedPairId(pairId), []);
 
   const goWrap = useCallback(
     (pairId: string) => {
@@ -70,25 +78,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [router],
   );
 
-  const addErc20 = useCallback((symbol: string, amount: number) => {
-    setErc20((b) => ({ ...b, [symbol]: (b[symbol] ?? 0) + amount }));
-  }, []);
-  const subErc20 = useCallback((symbol: string, amount: number) => {
-    setErc20((b) => ({ ...b, [symbol]: Math.max(0, (b[symbol] ?? 0) - amount) }));
-  }, []);
-
+  // A fresh deposit re-encrypts the balance, so it must be decrypted again
+  // before its cleartext is trusted — reset to `encrypted` on every mutation.
   const addConf = useCallback((confSymbol: string, amount: number) => {
     setConf((c) => {
-      const prev = c[confSymbol];
-      const total = (prev?.amount ?? 0) + amount;
-      return {
-        ...c,
-        [confSymbol]: {
-          amount: total,
-          handle: fakeCiphertext(`${confSymbol}:${total}`),
-          state: "encrypted", // a new deposit re-encrypts; must decrypt again
-        },
-      };
+      const total = (c[confSymbol]?.amount ?? 0) + amount;
+      return { ...c, [confSymbol]: { amount: total, state: "encrypted" } };
     });
   }, []);
   const subConf = useCallback((confSymbol: string, amount: number) => {
@@ -96,14 +91,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const prev = c[confSymbol];
       if (!prev) return c;
       const total = Math.max(0, prev.amount - amount);
-      return {
-        ...c,
-        [confSymbol]: {
-          amount: total,
-          handle: fakeCiphertext(`${confSymbol}:${total}`),
-          state: "encrypted",
-        },
-      };
+      return { ...c, [confSymbol]: { amount: total, state: "encrypted" } };
     });
   }, []);
   const setConfReveal = useCallback(
@@ -114,18 +102,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // local entry exists yet) and only just decrypted on the Decrypt tab.
         // Without this, the reveal can't propagate back to Wrap/Unwrap.
         const amount =
-          state === "revealed" && revealed !== undefined
-            ? Number(revealed)
-            : prev?.amount ?? 0;
-        return {
-          ...c,
-          [confSymbol]: {
-            amount,
-            handle: prev?.handle ?? fakeCiphertext(confSymbol),
-            state,
-            revealed,
-          },
-        };
+          state === "revealed" && revealed !== undefined ? Number(revealed) : prev?.amount ?? 0;
+        return { ...c, [confSymbol]: { amount, state, revealed } };
       });
     },
     [],
@@ -138,17 +116,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       selectedPairId,
       decryptTarget,
       setDecryptTarget,
+      selectPair,
       goWrap,
       goDecrypt,
-      erc20,
-      addErc20,
-      subErc20,
       conf,
       addConf,
       subConf,
       setConfReveal,
     }),
-    [tab, selectedPairId, decryptTarget, erc20, conf, goWrap, goDecrypt, addErc20, subErc20, addConf, subConf, setConfReveal],
+    [tab, selectedPairId, decryptTarget, conf, selectPair, goWrap, goDecrypt, addConf, subConf, setConfReveal],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

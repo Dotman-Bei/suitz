@@ -15,6 +15,7 @@ import { Web3Provider } from "@/components/providers/Web3Provider";
 import { AppStoreProvider } from "@/components/providers/AppStore";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { DoodleDefs } from "@/components/decor/Doodles";
 
 export const metadata: Metadata = {
   title: "suitz.",
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen antialiased">
+        <DoodleDefs />
         <Web3Provider>
           <AppStoreProvider>
             <Header />

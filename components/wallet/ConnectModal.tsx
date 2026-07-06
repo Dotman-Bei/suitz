@@ -162,8 +162,10 @@ export function ConnectModal({ open, onClose }: { open: boolean; onClose: () => 
 function WalletIcon({ connector }: { connector: Connector }) {
   const icon = (connector as { icon?: string }).icon;
   if (icon) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
+      // Connector-provided icon (data-URI / remote URL); next/image can't
+      // optimise arbitrary wallet URLs and adds no value for a 36px glyph.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={icon}
         alt=""

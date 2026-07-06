@@ -71,7 +71,7 @@ export function EncryptedValue({
         </span>
       ) : state === "error" ? (
         <span className="mono-label normal-case tracking-normal text-signal-error">
-          decryption failed — retry
+          decryption failed, retry
         </span>
       ) : (
         <code className="font-mono text-2xs text-ink-300">handle {handle}</code>

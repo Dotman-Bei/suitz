@@ -19,22 +19,6 @@ export function isAddressLike(value: string): value is Address {
   return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
-/**
- * Deterministic ciphertext-looking string for a handle, so the encrypted
- * state reads like real FHE output rather than lorem filler.
- */
-export function fakeCiphertext(seed: string, len = 18): string {
-  const alphabet = "0123456789abcdef";
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  let out = "0x";
-  for (let i = 0; i < len; i++) {
-    h = (h * 1103515245 + 12345) >>> 0;
-    out += alphabet[h % 16];
-  }
-  return out;
-}
-
 export function blockExplorer(addr: string): string {
   return `https://sepolia.etherscan.io/address/${addr}`;
 }

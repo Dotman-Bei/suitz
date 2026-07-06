@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useWalletClient } from "wagmi";
 import { formatUnits } from "viem";
-import { resolvePairs } from "@/lib/registry";
+import { usePairs, EMPTY_PAIRS } from "@/lib/usePairs";
 import { WRAPPER_ABI } from "@/lib/abis";
 import { publicClient } from "@/lib/viemClient";
 import { userDecryptHandle, ZERO_HANDLE } from "@/lib/fheDecrypt";
@@ -18,21 +17,18 @@ import { Button } from "@/components/ui/Button";
 import { Search, Key, Spinner } from "@/components/ui/Icons";
 import { isAddressLike } from "@/lib/format";
 
-// a REAL ERC-7984 wrapper that isn't a registry mock — proves "decrypt anything"
-const EXTERNAL_DEMO = { address: "0x167DC962808B32CFFFc7e14B5018c0bE06A3A208", symbol: "ctGBP" };
 // a non-ERC-7984 address — proves the interface-probe error path
 const BAD_DEMO = "0x000000000000000000000000000000000000dEaD";
 
 function humanDecryptError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/reject|denied|signature|user/i.test(msg)) return "Signature rejected.";
-  return "Couldn’t decrypt — the relayer may be busy. Try again.";
+  return "Couldn’t decrypt, the relayer may be busy. Try again.";
 }
 
 export function DecryptView() {
-  const pairs = useMemo(() => resolvePairs(), []);
+  const { data: pairs = EMPTY_PAIRS } = usePairs();
   const { connected, address: userAddress } = useWallet();
-  const { data: walletClient } = useWalletClient();
   const store = useStore();
 
   const [address, setAddress] = useState("");
@@ -53,10 +49,7 @@ export function DecryptView() {
     [address, pairs],
   );
   const inRegistry = Boolean(registryMatch);
-  const displaySymbol =
-    tokenSymbol ||
-    registryMatch?.confidential.symbol ||
-    (address.toLowerCase() === EXTERNAL_DEMO.address.toLowerCase() ? EXTERNAL_DEMO.symbol : "ERC-7984");
+  const displaySymbol = tokenSymbol || registryMatch?.confidential.symbol || "ERC-7984";
 
   // auto-detect: scan registry pairs for a non-zero confidential balance onchain
   const [detected, setDetected] = useState<WrapperPair[]>([]);
@@ -133,7 +126,7 @@ export function DecryptView() {
   }, [address, valid, userAddress]);
 
   async function decrypt() {
-    if (!balance || !userAddress || !walletClient) return;
+    if (!balance || !userAddress) return;
     const token = address as `0x${string}`;
     const handle = balance.handle as `0x${string}`;
 
@@ -145,7 +138,7 @@ export function DecryptView() {
     setDecryptError(null);
     setBalance({ ...balance, state: "decrypting" });
     try {
-      const raw = await userDecryptHandle(token, handle, userAddress, walletClient);
+      const raw = await userDecryptHandle(token, handle, userAddress);
       const value = formatUnits(raw, tokenDecimals);
       setBalance({ handle, state: "revealed", revealed: value });
 
@@ -161,11 +154,11 @@ export function DecryptView() {
       <header className="section-head">
         <span className="section-index">03</span>
         <h2 className="text-xl font-semibold tracking-tight">Decrypt Any</h2>
-        <span className="ml-auto mono-label">EIP-712 user decryption</span>
+        <span className="ml-auto mono-label"></span>
       </header>
 
       <p className="mt-5 max-w-2xl text-ink-600">
-        Read the connected wallet&apos;s balance on <strong>any</strong> ERC-7984 token — registered
+        Read the connected wallet&apos;s balance on <strong>any</strong> ERC-7984 token, registered
         or not. Paste an address or pick one below. The value is re-encrypted to you and decrypted
         locally after a single EIP-712 signature; suitz never sees it.
       </p>
@@ -222,21 +215,16 @@ export function DecryptView() {
                   </div>
                 ) : (
                   <p className="mt-2 text-xs text-ink-400">
-                    No confidential balances yet — wrap a token, or try an example below.
+                    No confidential balances yet. Wrap a token, or paste any ERC-7984 address above.
                   </p>
                 )}
               </div>
 
               <div>
                 <span className="mono-label">Try an example</span>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Chip
-                    symbol={EXTERNAL_DEMO.symbol}
-                    glyph={<TokenGlyph symbol={EXTERNAL_DEMO.symbol} confidential size={16} />}
-                    hint="off-registry token"
-                    onClick={() => setAddress(EXTERNAL_DEMO.address)}
-                  />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Chip symbol="0x…dEaD" hint="not an ERC-7984" muted onClick={() => setAddress(BAD_DEMO)} />
+                  <span className="text-2xs text-ink-400">or paste any ERC-7984 address above</span>
                 </div>
               </div>
             </div>
@@ -301,13 +289,13 @@ export function DecryptView() {
             <ol className="mt-4 space-y-4 text-sm text-ink-600">
               <Numbered n={1}>Read the ciphertext handle from <code className="font-mono text-ink-900">confidentialBalanceOf(you)</code>.</Numbered>
               <Numbered n={2}>The relayer SDK builds a keypair + EIP-712 typed-data grant.</Numbered>
-              <Numbered n={3}>You sign once — no gas, no transaction.</Numbered>
+              <Numbered n={3}>You sign once, no gas, no transaction.</Numbered>
               <Numbered n={4}>The value is re-encrypted to your key and decrypted in your browser.</Numbered>
             </ol>
             <div className="mt-5 rounded-sm border border-line bg-paper-sunken p-3">
               <p className="flex items-start gap-2 text-xs text-ink-500">
                 <Key width={14} height={14} className="mt-0.5 shrink-0" />
-                Works on any ERC-7984 — this is how you read confidential assets that were never added
+                Works on any ERC-7984. This is how you read confidential assets that were never added
                 to the registry.
               </p>
             </div>

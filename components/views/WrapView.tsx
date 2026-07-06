@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { useReadContract, useWriteContract, useWalletClient } from "wagmi";
+import { useReadContract, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "@wagmi/core";
-import { bytesToHex, formatUnits, parseUnits } from "viem";
-import { resolvePairs } from "@/lib/registry";
+import { bytesToHex, decodeEventLog, formatUnits, parseUnits, type Log } from "viem";
+import { usePairs, EMPTY_PAIRS } from "@/lib/usePairs";
 import { ERC20_ABI, WRAPPER_ABI } from "@/lib/abis";
 import { wagmiConfig } from "@/lib/wagmi";
 import { publicClient } from "@/lib/viemClient";
 import { getFhevm } from "@/lib/fhevm";
 import { getConfidentialDecimals } from "@/lib/confidential";
-import { userDecryptHandle } from "@/lib/fheDecrypt";
+import { userDecryptHandle, publicDecryptHandle } from "@/lib/fheDecrypt";
 import type { FlowStage, WrapperPair } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { useWallet } from "@/components/providers/WalletProvider";
@@ -22,7 +22,6 @@ import { Alert } from "@/components/ui/Alert";
 import { ChevronDown, Swap, ArrowRight, Check, Key, ExternalLink, Spinner } from "@/components/ui/Icons";
 import { groupNumber, txExplorer } from "@/lib/format";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
 type Mode = "wrap" | "unwrap";
 
@@ -32,39 +31,36 @@ function humanError(e: unknown): string {
   if (/insufficient funds/i.test(msg)) return "Need Sepolia ETH for gas.";
   if (/exceeds balance|transfer amount exceeds/i.test(msg)) return "Insufficient token balance.";
   if (/out of range|overflow|must be less than|too large/i.test(msg)) return "Amount is too large for this token.";
-  return "Transaction failed — try again.";
+  return "Transaction failed, try again.";
 }
 
 const toHex = (v: Uint8Array | string): `0x${string}` =>
   typeof v === "string" ? (v.startsWith("0x") ? (v as `0x${string}`) : (`0x${v}` as `0x${string}`)) : bytesToHex(v);
 
-/** Poll the ERC-20 balance until the decryption oracle releases the unwrap. */
-async function pollBalanceIncrease(
-  token: `0x${string}`,
-  owner: `0x${string}`,
-  before: bigint,
-  timeoutMs: number,
-): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    await sleep(4000);
+/**
+ * Pull the euint64 handle the wrapper queued for decryption out of the unwrap
+ * receipt. finalizeUnwrap needs it to fetch the cleartext + KMS proof and
+ * release the ERC-20.
+ */
+function extractUnwrapHandle(logs: Log[], wrapper: `0x${string}`): `0x${string}` | null {
+  const w = wrapper.toLowerCase();
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== w) continue;
     try {
-      const now = (await publicClient.readContract({
-        address: token,
-        abi: ERC20_ABI,
-        functionName: "balanceOf",
-        args: [owner],
-      })) as bigint;
-      if (now > before) return true;
+      const ev = decodeEventLog({ abi: WRAPPER_ABI, data: log.data, topics: log.topics });
+      if (ev.eventName === "UnwrapRequested") {
+        const args = ev.args as { handle?: `0x${string}`; requestId?: `0x${string}` };
+        return args.handle ?? args.requestId ?? null;
+      }
     } catch {
-      /* transient RPC error — keep polling */
+      /* not the UnwrapRequested event — skip */
     }
   }
-  return false;
+  return null;
 }
 
 export function WrapView() {
-  const pairs = useMemo(() => resolvePairs(), []);
+  const { data: pairs = EMPTY_PAIRS } = usePairs();
   const { connected, network, address } = useWallet();
   const store = useStore();
 
@@ -78,12 +74,13 @@ export function WrapView() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [finalizePending, setFinalizePending] = useState(false);
+  // handle of a burned-but-not-yet-released unwrap, so a failed finalize can be
+  // retried (the ERC-7984 is already burned — the ERC-20 is still claimable).
+  const [pendingHandle, setPendingHandle] = useState<`0x${string}` | null>(null);
   const busyRef = useRef(false);
 
   // inline (in-tab) decryption of the confidential balance, for the unwrap side
-  const { data: walletClient } = useWalletClient();
   const [decrypting, setDecrypting] = useState(false);
-  const [decryptErr, setDecryptErr] = useState<string | null>(null);
   const [confDecimals, setConfDecimals] = useState<number | null>(null);
 
   const underlyingAddr = selected?.underlying.address;
@@ -100,6 +97,12 @@ export function WrapView() {
       alive = false;
     };
   }, [wrapperAddr]);
+
+  // Warm up the FHEVM SDK (WASM + key material) ahead of time so the first
+  // unwrap doesn't pay init cost on top of the proof generation.
+  useEffect(() => {
+    if (connected) void getFhevm().catch(() => {});
+  }, [connected]);
 
   // live ERC-20 balance + allowance for the selected pair (wrap side)
   const { data: erc20Raw, refetch: refetchBal } = useReadContract({
@@ -125,6 +128,13 @@ export function WrapView() {
     setTxHash(null);
     setErrorMsg(null);
   }, [mode, amount, selected?.id]);
+
+  // A pending unwrap belongs to one wrapper — drop it when the pair or direction
+  // changes (but NOT when only the amount is edited, so the claim survives edits).
+  useEffect(() => {
+    setPendingHandle(null);
+    setFinalizePending(false);
+  }, [mode, selected?.id]);
 
   if (!selected) return null;
 
@@ -184,7 +194,9 @@ export function WrapView() {
       setTxHash(wrapHash);
       await refetchBal();
 
-      // bridge into the mock store so the still-mock decrypt/unwrap stay usable until M4/M5
+      // Track the new confidential balance optimistically so the Unwrap tab knows
+      // funds exist and prompts a decrypt. The true value is always read + decrypted
+      // fresh from chain (decryptConfidential / Decrypt tab) before it gates an unwrap.
       store.addConf(confidential.symbol, amt);
       setStage("settled");
     } catch (e) {
@@ -195,13 +207,45 @@ export function WrapView() {
     }
   }
 
+  /**
+   * Step 2 of unwrap: turn a queued decryption `handle` into the released
+   * ERC-20. Public-decrypts the amount + KMS proof from the relayer, then calls
+   * finalizeUnwrap. Split out so it can be retried on its own — once the ERC-7984
+   * is burned the ERC-20 stays claimable, so a failure here must never strand it.
+   */
+  async function finalizeUnwrap(reqHandle: `0x${string}`, wrapper: `0x${string}`, dec: number) {
+    setStage("finalizing");
+    setPendingHandle(reqHandle);
+    // fetch cleartext amount + KMS signatures (retries until the coprocessor is ready)
+    const { amount: clearAmount, proof } = await publicDecryptHandle(reqHandle);
+    const finalizeHash = await writeContractAsync({
+      address: wrapper,
+      abi: WRAPPER_ABI,
+      functionName: "finalizeUnwrap",
+      args: [reqHandle, clearAmount, proof],
+    });
+    await waitForTransactionReceipt(wagmiConfig, { hash: finalizeHash });
+    setTxHash(finalizeHash);
+    await refetchBal();
+    store.subConf(confidential.symbol, Number(formatUnits(clearAmount, dec)));
+    setPendingHandle(null);
+    setFinalizePending(false);
+    setStage("settled");
+  }
+
   async function runUnwrap() {
     if (busyRef.current || !address || !wrapperAddr) return;
     busyRef.current = true;
     setErrorMsg(null);
     setFinalizePending(false);
+    // true once the ERC-7984 is burned — from here a failure is a claimable
+    // pending unwrap, not a lost one (state reads in catch would be stale).
+    let burned = false;
     try {
       setStage("encrypting");
+      // Yield a frame so the "Encrypting…" step actually paints before the proof
+      // generation locks the main thread (otherwise the page looks frozen).
+      await new Promise((r) => setTimeout(r, 30));
 
       // Confidential balances are euint64, so the wrapper exposes its OWN decimals
       // (capped so amounts fit 64 bits) — distinct from the underlying's. The
@@ -218,14 +262,7 @@ export function WrapView() {
       const encHandle = toHex(enc.handles[0]);
       const proof = toHex(enc.inputProof);
 
-      const before = (await publicClient.readContract({
-        address: underlying.address,
-        abi: ERC20_ABI,
-        functionName: "balanceOf",
-        args: [address],
-      })) as bigint;
-
-      // 2 — submit unwrap: burns the ERC-7984 and requests oracle decryption
+      // 2 — submit unwrap: burns the ERC-7984 and queues the amount for decryption
       setStage("submitting");
       const hash = await writeContractAsync({
         address: wrapperAddr,
@@ -233,18 +270,36 @@ export function WrapView() {
         functionName: "unwrap",
         args: [address, address, encHandle, proof],
       });
-      await waitForTransactionReceipt(wagmiConfig, { hash });
+      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
       setTxHash(hash);
+      burned = true;
 
-      // 3 — the FHEVM decryption oracle finalizes asynchronously → wait for ERC-20 release
-      setStage("finalizing");
-      const released = await pollBalanceIncrease(underlying.address, address, before, 90_000);
-      await refetchBal();
-      store.subConf(confidential.symbol, amt);
-      setFinalizePending(!released);
-      setStage("settled");
+      // 3 — finalize: fetch the public decryption + proof and release the ERC-20.
+      // This second tx is what the old flow was missing — without it the burned
+      // balance never converts back and the ERC-20 never arrives.
+      const reqHandle = extractUnwrapHandle(receipt.logs as Log[], wrapperAddr);
+      if (!reqHandle) throw new Error("Unwrap request handle not found in logs");
+      await finalizeUnwrap(reqHandle, wrapperAddr, dec);
     } catch (e) {
       setErrorMsg(humanError(e));
+      setFinalizePending(burned);
+      setStage("error");
+    } finally {
+      busyRef.current = false;
+    }
+  }
+
+  /** Retry just the finalize (claim) step for an already-burned unwrap. */
+  async function runClaim() {
+    if (busyRef.current || !wrapperAddr || !pendingHandle) return;
+    busyRef.current = true;
+    setErrorMsg(null);
+    try {
+      const dec = confDecimals ?? (await getConfidentialDecimals(wrapperAddr));
+      await finalizeUnwrap(pendingHandle, wrapperAddr, dec);
+    } catch (e) {
+      setErrorMsg(humanError(e));
+      setFinalizePending(true);
       setStage("error");
     } finally {
       busyRef.current = false;
@@ -255,9 +310,8 @@ export function WrapView() {
   // tab. Same EIP-712 flow as the Decrypt tab; result lands in the store so the
   // unwrap max / insufficient checks unlock immediately.
   async function decryptConfidential() {
-    if (!address || !walletClient || decrypting) return;
+    if (!address || decrypting) return;
     setDecrypting(true);
-    setDecryptErr(null);
     try {
       const token = confidential.address;
       const handle = (await publicClient.readContract({
@@ -267,10 +321,10 @@ export function WrapView() {
         args: [address],
       })) as `0x${string}`;
       const dec = confDecimals ?? (await getConfidentialDecimals(token));
-      const raw = await userDecryptHandle(token, handle, address, walletClient);
+      const raw = await userDecryptHandle(token, handle, address);
       store.setConfReveal(confidential.symbol, "revealed", formatUnits(raw, dec));
-    } catch (e) {
-      setDecryptErr(humanError(e));
+    } catch {
+      /* non-fatal: the spinner clears in finally; user can retry from the balance row */
     } finally {
       setDecrypting(false);
     }
@@ -291,7 +345,7 @@ export function WrapView() {
           {/* ---- conversion card ---- */}
           <div className="panel">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <PairSelect pairs={pairs} selected={selected} onSelect={store.goWrap} />
+              <PairSelect pairs={pairs} selected={selected} onSelect={store.selectPair} />
               <DirectionToggle mode={mode} onToggle={() => setMode((m) => (m === "wrap" ? "unwrap" : "wrap"))} />
             </div>
 
@@ -401,39 +455,8 @@ export function WrapView() {
                 </Alert>
               </div>
             )}
-            {mode === "unwrap" && unwrapKnownMax === null && (
-              <div className="mt-4">
-                <Alert
-                  tone="info"
-                  title="Balance is encrypted"
-                  action={
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      loading={decrypting}
-                      onClick={decryptConfidential}
-                    >
-                      <Key width={14} height={14} /> Decrypt here
-                    </Button>
-                  }
-                >
-                  Decrypt your {confidential.symbol} balance to set a safe maximum — right here, no
-                  need to leave this tab. Prefer the full view?{" "}
-                  <button
-                    type="button"
-                    onClick={() => store.goDecrypt(confidential.address)}
-                    className="font-medium underline underline-offset-2 hover:text-ink-900"
-                  >
-                    Open the Decrypt tab
-                  </button>
-                  .
-                  {decryptErr && <span className="mt-1 block text-signal-error">{decryptErr}</span>}
-                </Alert>
-              </div>
-            )}
-
-            {/* error */}
-            {stage === "error" && errorMsg && (
+            {/* error — suppressed when a claim is pending (the claim alert covers it) */}
+            {stage === "error" && errorMsg && !finalizePending && (
               <div className="mt-4">
                 <Alert tone="error" title={mode === "wrap" ? "Wrap failed" : "Unwrap failed"}>
                   {errorMsg}
@@ -448,13 +471,23 @@ export function WrapView() {
               </div>
             )}
 
-            {/* oracle still finalizing (unwrap) */}
-            {settled && finalizePending && (
-              <div className="mt-6">
-                <Alert tone="info" title="Decryption oracle finalizing">
-                  Your unwrap is submitted. The oracle releases the ERC-20 a few blocks later — it will
-                  arrive shortly. You can follow the transaction below.
+            {/* burned but not yet released — offer to (re)claim */}
+            {finalizePending && (
+              <div className="mt-6 space-y-3">
+                <Alert tone="info" title="Unwrap burned, claim pending">
+                  Your {confidential.symbol} was burned but the {underlying.symbol} release
+                  (finalizeUnwrap) didn&apos;t complete. Your funds are safe and still claimable;
+                  retry to fetch the decryption proof and release them.
                 </Alert>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  loading={stage === "finalizing"}
+                  disabled={wrongNetwork || !pendingHandle}
+                  onClick={runClaim}
+                >
+                  {stage === "finalizing" ? "Claiming…" : `Claim ${underlying.symbol}`}
+                </Button>
               </div>
             )}
 
@@ -470,7 +503,7 @@ export function WrapView() {
             )}
 
             {/* primary action */}
-            {!settled && (
+            {!settled && !finalizePending && (
               <div className="mt-6">
                 <PrimaryAction
                   mode={mode}
@@ -670,8 +703,8 @@ const WRAP_STEPS = [
 ];
 const UNWRAP_STEPS = [
   { key: "encrypt", label: "Encrypt amount (relayer SDK)" },
-  { key: "submit", label: "Submit unwrap transaction" },
-  { key: "finalize", label: "Decryption oracle finalizes" },
+  { key: "submit", label: "Submit unwrap (burns ERC-7984)" },
+  { key: "finalize", label: "Decrypt proof + finalizeUnwrap" },
   { key: "settle", label: "ERC-20 released" },
 ];
 
@@ -706,7 +739,7 @@ function FlowStepper({ mode, stage, approved }: { mode: Mode; stage: FlowStage; 
             <span className={"step-label text-sm " + (st === "active" ? "font-medium text-ink-900" : "text-ink-600")}>
               {s.label}
               {st === "active" && s.key === "finalize" && (
-                <span className="ml-2 text-2xs text-ink-400">this can take a few blocks…</span>
+                <span className="ml-2 text-2xs text-ink-400">fetching decryption proof…</span>
               )}
             </span>
           </li>
@@ -838,16 +871,16 @@ function SummaryPanel({
         <h3 className="mono-label">{mode === "wrap" ? "What happens on wrap" : "What happens on unwrap"}</h3>
         {mode === "wrap" ? (
           <ol className="mt-4 space-y-3 text-sm text-ink-600">
-            <li>1 — Approve the wrapper to spend your ERC-20.</li>
-            <li>2 — <code className="font-mono text-ink-900">wrap()</code> pulls the ERC-20 and mints ERC-7984.</li>
-            <li>3 — Your new balance arrives encrypted; decrypt it anytime.</li>
+            <li>1 · Approve the wrapper to spend your ERC-20.</li>
+            <li>2 · <code className="font-mono text-ink-900">wrap()</code> pulls the ERC-20 and mints ERC-7984.</li>
+            <li>3 · Your new balance arrives encrypted; decrypt it anytime.</li>
           </ol>
         ) : (
           <ol className="mt-4 space-y-3 text-sm text-ink-600">
-            <li>1 — The amount is encrypted client-side via the relayer SDK.</li>
-            <li>2 — <code className="font-mono text-ink-900">unwrap()</code> burns the ERC-7984.</li>
-            <li>3 — The FHEVM decryption oracle finalizes asynchronously.</li>
-            <li>4 — On the callback your ERC-20 is released. suitz waits honestly.</li>
+            <li>1 · The amount is encrypted client-side via the relayer SDK.</li>
+            <li>2 · <code className="font-mono text-ink-900">unwrap()</code> burns the ERC-7984 and queues the amount for decryption.</li>
+            <li>3 · The relayer publicly decrypts it, returning the value + KMS proof.</li>
+            <li>4 · <code className="font-mono text-ink-900">finalizeUnwrap()</code> releases your ERC-20 in a second tx.</li>
           </ol>
         )}
       </div>

@@ -85,6 +85,10 @@ const config: Config = {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-10px)" },
         },
+        wiggle: {
+          "0%, 100%": { transform: "translateY(0) rotate(-3deg)" },
+          "50%": { transform: "translateY(-7px) rotate(3deg)" },
+        },
         "grid-pan": {
           "0%": { backgroundPosition: "0 0" },
           "100%": { backgroundPosition: "56px 56px" },
@@ -107,6 +111,7 @@ const config: Config = {
         "marquee-slow": "marquee 70s linear infinite",
         blink: "blink 1.1s step-end infinite",
         float: "float 6s ease-in-out infinite",
+        wiggle: "wiggle 7s ease-in-out infinite",
         "grid-pan": "grid-pan 8s linear infinite",
         "pulse-ring": "pulse-ring 1.8s ease-out infinite",
         sheen: "sheen 7s ease-in-out infinite",

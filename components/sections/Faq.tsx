@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Reveal } from "@/components/motion/Reveal";
 import { Plus } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 import { clsx } from "@/lib/cn";
 
 const QA = [
@@ -34,9 +35,10 @@ export function Faq() {
 
   return (
     <section className="relative scroll-mt-24 border-t border-line bg-paper-raised py-24">
-      <div className="shell grid gap-12 lg:grid-cols-[0.8fr_1.2fr]">
+      <SectionDoodles variant="faq" />
+      <div className="shell relative grid gap-12 lg:grid-cols-[0.8fr_1.2fr]">
         <Reveal>
-          <p className="eyebrow">05 — FAQ</p>
+          <p className="eyebrow">05 · FAQ</p>
           <h2 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Questions, answered.
           </h2>

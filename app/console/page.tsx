@@ -4,6 +4,7 @@ import { Reveal } from "@/components/motion/Reveal";
 import { ScrambleText } from "@/components/motion/ScrambleText";
 import { Console } from "@/components/sections/Console";
 import { ArrowRight } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 
 export const metadata: Metadata = {
   title: "Console",
@@ -13,7 +14,9 @@ export const metadata: Metadata = {
 
 export default function ConsolePage() {
   return (
-    <section className="shell scroll-mt-24 pb-24 pt-28 sm:pt-32">
+    <section className="relative scroll-mt-24 overflow-hidden pb-24 pt-28 sm:pt-32">
+      <SectionDoodles variant="console" />
+      <div className="shell relative">
       <Reveal>
         <Link
           href="/"
@@ -39,6 +42,7 @@ export default function ConsolePage() {
       <Reveal delay={0.1} className="mt-10">
         <Console />
       </Reveal>
+      </div>
     </section>
   );
 }

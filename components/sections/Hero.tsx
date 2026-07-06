@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { TokenGlyph } from "@/components/ui/TokenGlyph";
 import { ArrowRight, Lock, Check } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 
 const easeOut = [0.2, 0.7, 0.2, 1] as const;
 
@@ -19,6 +20,7 @@ export function Hero() {
   return (
     <section className="relative overflow-hidden border-b border-line">
       <HeroBackdrop />
+      <SectionDoodles variant="hero" />
 
       <div className="shell relative grid min-h-[88vh] items-center gap-12 py-20 lg:grid-cols-[1.05fr_0.95fr]">
         {/* ---- copy ---- */}
@@ -50,7 +52,7 @@ export function Hero() {
           >
             suitz is the canonical registry for Zama&apos;s ERC-20 ↔ ERC-7984
             wrappers. Faucet test tokens, wrap them into confidential balances,
-            decrypt what&apos;s yours, and unwrap back — all from the official
+            decrypt what&apos;s yours, and unwrap back, all from the official
             onchain registry, so the ecosystem stops fragmenting.
           </motion.p>
 

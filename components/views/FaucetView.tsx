@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useReadContracts, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "@wagmi/core";
 import { formatUnits, parseUnits } from "viem";
-import { resolvePairs } from "@/lib/registry";
+import { usePairs, EMPTY_PAIRS } from "@/lib/usePairs";
 import { ERC20_ABI } from "@/lib/abis";
 import { wagmiConfig } from "@/lib/wagmi";
 import type { WrapperPair } from "@/lib/types";
@@ -32,7 +32,7 @@ function humanError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/reject|denied|user/i.test(msg)) return "Request rejected.";
   if (/insufficient funds/i.test(msg)) return "Need Sepolia ETH for gas.";
-  return "Mint failed — try again.";
+  return "Mint failed, try again.";
 }
 
 type ClaimState = "idle" | "claiming" | "claimed";
@@ -40,7 +40,8 @@ type ClaimState = "idle" | "claiming" | "claimed";
 export function FaucetView() {
   const { connected, address, network, switchToSepolia } = useWallet();
   const store = useStore();
-  const official = useMemo(() => resolvePairs().filter((p) => p.source === "official"), []);
+  const { data: pairs = EMPTY_PAIRS } = usePairs();
+  const official = useMemo(() => pairs.filter((p) => p.source === "official"), [pairs]);
   const { writeContractAsync } = useWriteContract();
 
   const [states, setStates] = useState<Record<string, ClaimState>>({});
@@ -187,7 +188,7 @@ export function FaucetView() {
 
       <p className="mt-6 text-xs text-ink-400">
         Each claim mints test tokens straight to your wallet. You&apos;ll need a little Sepolia ETH
-        for gas —{" "}
+        for gas,{" "}
         <a
           href="https://www.alchemy.com/faucets/ethereum-sepolia"
           target="_blank"

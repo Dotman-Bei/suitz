@@ -4,6 +4,7 @@ import { Reveal } from "@/components/motion/Reveal";
 import { Counter } from "@/components/motion/Counter";
 import { SourceBadge } from "@/components/ui/SourceBadge";
 import { Close, Check } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 
 const LOOKALIKES = [
   { s: "cUSDC", t: "12%", l: "4%", r: "-6deg" },
@@ -20,9 +21,10 @@ const CANONICAL = ["cUSDC", "cDAI", "cWETH"];
 export function WhyItMatters() {
   return (
     <section id="why" className="relative scroll-mt-24 border-t border-line py-24">
-      <div className="shell">
+      <SectionDoodles variant="why" />
+      <div className="shell relative">
         <Reveal>
-          <p className="eyebrow">02 — Why it matters</p>
+          <p className="eyebrow">02 · Why it matters</p>
           <h2 className="mt-4 max-w-2xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Fragmentation is the enemy of composability.
           </h2>

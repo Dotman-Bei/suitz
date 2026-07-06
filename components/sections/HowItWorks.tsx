@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Reveal, RevealGroup, RevealItem } from "@/components/motion/Reveal";
 import { Shield, Faucet, Swap, Key, ArrowRight } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 import type { ComponentType, SVGProps } from "react";
 
 const STEPS: {
@@ -13,16 +14,17 @@ const STEPS: {
   { icon: Shield, title: "Browse", body: "Read the official onchain registry. Every canonical ERC-20 ↔ ERC-7984 pair, with metadata and both addresses." },
   { icon: Faucet, title: "Faucet", body: "Claim the official cTokenMocks on Sepolia. A fresh wallet is ready to try everything in under a minute." },
   { icon: Swap, title: "Wrap", body: "Approve, then wrap an ERC-20 into its confidential ERC-7984 form. Your new balance arrives encrypted." },
-  { icon: Key, title: "Decrypt", body: "Sign once (EIP-712) to reveal your balance — on any ERC-7984 token, in the registry or not." },
+  { icon: Key, title: "Decrypt", body: "Sign once (EIP-712) to reveal your balance on any ERC-7984 token, in the registry or not." },
   { icon: ArrowRight, title: "Unwrap", body: "Burn the confidential token; the decryption oracle finalizes; your ERC-20 is released. We wait honestly." },
 ];
 
 export function HowItWorks() {
   return (
     <section id="how" className="relative scroll-mt-24 border-t border-line bg-paper-raised py-24">
-      <div className="shell">
+      <SectionDoodles variant="how" />
+      <div className="shell relative">
         <Reveal>
-          <p className="eyebrow">01 — How it works</p>
+          <p className="eyebrow">01 · How it works</p>
           <h2 className="mt-4 max-w-2xl font-display text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Five steps from public to private and back.
           </h2>

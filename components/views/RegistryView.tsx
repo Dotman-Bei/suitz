@@ -1,30 +1,51 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { fetchRegistry } from "@/lib/registry";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { loadSessionPairs, removeSessionPair, saveSessionPair } from "@/lib/registry";
+import { usePairs, useRefreshPairs } from "@/lib/usePairs";
 import type { WrapperPair, PairSource } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { TokenGlyph } from "@/components/ui/TokenGlyph";
 import { SourceBadge } from "@/components/ui/SourceBadge";
 import { AddressTag } from "@/components/ui/AddressTag";
 import { Button } from "@/components/ui/Button";
-import { Search, ArrowRight, Key } from "@/components/ui/Icons";
+import { Search, ArrowRight, Key, Plus, Close } from "@/components/ui/Icons";
+import { AddPairModal } from "./AddPairModal";
 
 type Filter = "all" | PairSource;
 
 export function RegistryView() {
   const { goWrap, goDecrypt } = useStore();
-  const [pairs, setPairs] = useState<WrapperPair[] | null>(null);
+  // one shared, cached read of the live registry — the same source every tab
+  // uses, so a pair added here is instantly usable in Wrap/Decrypt/Faucet.
+  const { data: pairs } = usePairs();
+  const refreshPairs = useRefreshPairs();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [addOpen, setAddOpen] = useState(false);
+  // confidential addresses added live this session (removable from the UI)
+  const [sessionAddrs, setSessionAddrs] = useState<Set<string>>(() => new Set());
 
+  // keep the "removable session pair" set in sync whenever the list refreshes
   useEffect(() => {
-    let alive = true;
-    fetchRegistry().then((p) => alive && setPairs(p));
-    return () => {
-      alive = false;
-    };
-  }, []);
+    setSessionAddrs(new Set(loadSessionPairs().map((s) => s.confidential.toLowerCase())));
+  }, [pairs]);
+
+  const onAdd = useCallback(
+    (pair: WrapperPair) => {
+      saveSessionPair({ confidential: pair.confidential.address, note: pair.note });
+      void refreshPairs();
+    },
+    [refreshPairs],
+  );
+
+  const onRemove = useCallback(
+    (address: string) => {
+      removeSessionPair(address);
+      void refreshPairs();
+    },
+    [refreshPairs],
+  );
 
   const filtered = useMemo(() => {
     if (!pairs) return [];
@@ -66,7 +87,13 @@ export function RegistryView() {
           />
         </div>
 
-        <Segmented value={filter} onChange={setFilter} />
+        <div className="flex items-center gap-2">
+          <Segmented value={filter} onChange={setFilter} />
+          <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+            <Plus width={15} height={15} />
+            Add pair
+          </Button>
+        </div>
       </div>
 
       {/* table */}
@@ -114,6 +141,17 @@ export function RegistryView() {
                     </td>
                     <td>
                       <div className="flex items-center justify-end gap-2">
+                        {sessionAddrs.has(p.confidential.address.toLowerCase()) && (
+                          <button
+                            type="button"
+                            onClick={() => onRemove(p.confidential.address)}
+                            aria-label={`Remove ${p.confidential.symbol}`}
+                            title="Remove this session-added pair"
+                            className="flex h-7 w-7 items-center justify-center rounded-sm text-ink-300 transition hover:bg-ink-100 hover:text-ink-900"
+                          >
+                            <Close width={14} height={14} />
+                          </button>
+                        )}
                         <Button size="sm" variant="outline" onClick={() => goDecrypt(p.confidential.address)}>
                           <Key width={14} height={14} />
                           Decrypt
@@ -143,9 +181,23 @@ export function RegistryView() {
 
       <p className="mt-4 text-xs text-ink-400">
         Official pairs are read from the onchain WrappersRegistry. Local pairs come from{" "}
-        <code className="font-mono">config/pairs.ts</code> — see the Decrypt tab to read any balance,
-        or add your own pair (README → “Adding a pair”).
+        <code className="font-mono">config/pairs.ts</code> or the{" "}
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="font-medium text-ink-700 underline-offset-2 hover:underline"
+        >
+          Add pair
+        </button>{" "}
+        button, both merge onto the onchain source of truth (README → “Adding a pair”).
       </p>
+
+      <AddPairModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdd={onAdd}
+        existing={pairs ?? []}
+      />
     </div>
   );
 }

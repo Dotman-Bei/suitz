@@ -4,23 +4,26 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Reveal } from "@/components/motion/Reveal";
 import { Copy, Check } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 
 type Mode = "local" | "onchain";
 
-const LOCAL_CODE = `// config/pairs.ts — the local override layer
+const LOCAL_CODE = `// config/pairs.ts: the local override layer.
+// Just the ERC-7984 wrapper address: the underlying ERC-20 and all
+// metadata (symbol / name / decimals) are read onchain automatically.
 LOCAL_PAIRS.push({
-  id: "cfoo",
-  source: "local",
-  chainId: 11155111,
-  underlying:   { address: "0x…", symbol: "FOO",  name: "Foo Token",        decimals: 18 },
-  confidential: { address: "0x…", symbol: "cFOO", name: "Confidential Foo",  decimals: 18 },
+  confidential: "0xYourErc7984Wrapper",
+  note: "my hackathon token", // optional
 });
-// save → it appears in the Registry tab, badged "local"`;
+// save → it appears in the Registry tab, badged "local"
+// (or skip the file entirely: use the "Add pair" button in the app)`;
 
-const ONCHAIN_CODE = `// Register the pair in the official WrappersRegistry (Sepolia)
-registry.registerWrapper(
-  underlyingErc20,      // 0x… your ERC-20
-  confidentialErc7984,  // 0x… its ERC-7984 wrapper
+const ONCHAIN_CODE = `// Register the pair in the official WrappersRegistry (Sepolia).
+// onlyOwner: Zama registers canonical pairs; the confidential token must
+// advertise ERC-165 supportsInterface(0x4958f2a4), the ERC-7984 interface id.
+registry.registerConfidentialToken(
+  tokenAddress,            // 0x… your ERC-20
+  confidentialTokenAddress // 0x… its ERC-7984 wrapper
 );
 
 // suitz reads it on the next refresh as "official"
@@ -32,22 +35,24 @@ export function AddPair() {
 
   return (
     <section id="docs" className="relative scroll-mt-24 border-t border-line py-24">
-      <div className="shell grid items-start gap-12 lg:grid-cols-[0.9fr_1.1fr]">
+      <SectionDoodles variant="add" />
+      <div className="shell relative grid items-start gap-12 lg:grid-cols-[0.9fr_1.1fr]">
         <Reveal>
-          <p className="eyebrow">04 — Extensibility</p>
+          <p className="eyebrow">04 · Extensibility</p>
           <h2 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Add a pair in one minute.
           </h2>
           <p className="mt-4 max-w-md text-lg leading-relaxed text-ink-600">
             The registry is a hybrid: the onchain WrappersRegistry is the source of
             truth, and a local config layers dev-only pairs on top. On collision,
-            onchain always wins — local never masquerades as official.
+            onchain always wins; local never masquerades as official.
           </p>
           <dl className="mt-8 space-y-5">
             <div>
               <dt className="font-display text-lg font-semibold">Local</dt>
               <dd className="mt-1 text-sm text-ink-600">
-                Drop two addresses into <code className="font-mono text-ink-900">config/pairs.ts</code>.
+                Drop one wrapper address into <code className="font-mono text-ink-900">config/pairs.ts</code>,{" "}
+                or use the in-app <span className="font-medium text-ink-900">Add pair</span> button.
                 Instant, no onchain registration.
               </dd>
             </div>

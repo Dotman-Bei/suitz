@@ -62,7 +62,7 @@ export function Footer() {
             <p className="mt-4 text-sm leading-relaxed text-ink-300">
               All tokens are official cTokenMocks on Sepolia and hold no value.
               Decryption reveals balances only to the connected wallet via an
-              EIP-712 signature — never to suitz.
+              EIP-712 signature, never to suitz.
             </p>
             <Link
               href="/console"

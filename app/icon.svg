@@ -1,4 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="13" fill="#0A0A0A" />
-  <text x="32" y="45" font-family="'Space Grotesk', Arial, sans-serif" font-size="40" font-weight="700" fill="#FFFFFF" text-anchor="middle">s</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="suitz">
+  <!-- suitz — two interlinked rings: the ERC-20 ↔ ERC-7984 wrapper pairing. Monochrome. -->
+  <rect width="64" height="64" rx="14" fill="#0A0A0A" />
+  <g fill="none" stroke="#FFFFFF" stroke-width="5">
+    <circle cx="24" cy="32" r="12.5" />
+    <circle cx="40" cy="32" r="12.5" />
+    <!-- weave: the left ring passes over the right at the lower crossing -->
+    <path d="M34.83 38.25 A12.5 12.5 0 0 1 27.86 43.89" stroke-linecap="round" />
+  </g>
 </svg>

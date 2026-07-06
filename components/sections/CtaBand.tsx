@@ -4,6 +4,7 @@ import { useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Reveal } from "@/components/motion/Reveal";
 import { ArrowRight } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 
 export function CtaBand() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function CtaBand() {
       <div className="pointer-events-none absolute -left-10 top-1/2 -translate-y-1/2 select-none font-display text-[28rem] font-bold leading-none hollow opacity-[0.06]">
         z
       </div>
+      <SectionDoodles variant="cta" tone="dark" />
 
       <div className="shell relative">
         <Reveal>
@@ -26,7 +28,7 @@ export function CtaBand() {
           </h2>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-ink-300">
             One registry. Every official ERC-20 ↔ ERC-7984 pair. Wrap, decrypt and
-            unwrap on Sepolia in a console judges — and developers — can trust.
+            unwrap on Sepolia in a console judges and developers can trust.
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-3">
             <button

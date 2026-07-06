@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { Reveal } from "@/components/motion/Reveal";
 import { Button } from "@/components/ui/Button";
 import { ArrowRight, Key, Check } from "@/components/ui/Icons";
+import { SectionDoodles } from "@/components/decor/Doodles";
 import { useStore } from "@/components/providers/AppStore";
 
 const BULLETS = [
-  "No gas, no transaction — just one signature.",
+  "No gas, no transaction. Just one signature.",
   "Scoped to the connected wallet; nobody else can read it.",
   "Works on any ERC-7984 token, registered or not.",
   "Re-encrypted to your key and decrypted in your browser.",
@@ -21,15 +22,16 @@ export function DecryptExplainer() {
 
   return (
     <section className="relative scroll-mt-24 border-t border-line bg-paper-raised py-24">
-      <div className="shell grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
+      <SectionDoodles variant="decrypt" />
+      <div className="shell relative grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
         <Reveal>
-          <p className="eyebrow">03 — Confidentiality</p>
+          <p className="eyebrow">03 · Confidentiality</p>
           <h2 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Your balance, revealed only to you.
           </h2>
           <p className="mt-4 max-w-lg text-lg leading-relaxed text-ink-600">
             ERC-7984 balances live onchain as encrypted handles. suitz turns a
-            handle into a number through the EIP-712 user-decryption flow — without
+            handle into a number through the EIP-712 user-decryption flow, without
             ever seeing the value itself.
           </p>
           <ul className="mt-7 space-y-3">
@@ -103,7 +105,7 @@ function DecryptPipeline() {
 
       <Connector label="userDecrypt" />
 
-      <Node active={active === 2} index="03" label="Cleartext — only you" caption="decrypted locally" dark>
+      <Node active={active === 2} index="03" label="Cleartext, only you" caption="decrypted locally" dark>
         <motion.span
           key={active === 2 ? "rev" : "hid"}
           initial={{ opacity: 0, filter: "blur(8px)" }}

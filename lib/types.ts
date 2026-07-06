@@ -1,11 +1,11 @@
 /**
  * Core domain types for suitz.
  *
- * These mirror what the live integration will produce: the onchain
- * WrappersRegistry yields (underlying ERC-20, confidential ERC-7984) tuples,
- * which we hydrate with token metadata. The UI is written against these types
- * so the data layer can be swapped from mock → wagmi/viem without touching
- * components.
+ * These describe the live data the app runs on: the onchain WrappersRegistry
+ * yields (underlying ERC-20, confidential ERC-7984) tuples, which we hydrate
+ * with token metadata via multicall (see lib/registry.ts). The UI is written
+ * entirely against these types, so contract calls stay isolated behind the
+ * lib/ layer and never leak wagmi/viem specifics into components.
  */
 
 export type Address = `0x${string}`;
@@ -29,6 +29,22 @@ export interface WrapperPair {
   underlying: TokenMeta;
   /** the confidential ERC-7984 wrapper */
   confidential: TokenMeta;
+  /** optional free-text note for local/dev pairs (why it exists) */
+  note?: string;
+}
+
+/**
+ * Slim input for the LOCAL override layer and the in-app "Add pair" flow.
+ * Only the confidential (ERC-7984) address is required: the underlying ERC-20
+ * is derived onchain from the wrapper's `underlying()` getter, and all metadata
+ * (symbol / name / decimals, both sides) is hydrated via the same multicall
+ * path used for official pairs — so a local pair can never carry stale or wrong
+ * metadata. Pass `underlying` only to override the derived address.
+ */
+export interface LocalPairInput {
+  confidential: Address;
+  underlying?: Address;
+  note?: string;
 }
 
 /** Lifecycle of an encrypted balance handle in the UI. */
