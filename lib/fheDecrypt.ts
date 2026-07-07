@@ -27,15 +27,26 @@ export function isRateLimitedError(e: unknown): boolean {
 }
 
 /**
- * Transient relayer/KMS failures worth retrying: the handle isn't ingested yet,
- * the ACL hasn't propagated, we were throttled, or the relayer had a blip.
- * Deliberately excludes wallet/signature rejections so those fail fast.
+ * Transient relayer/KMS failures: the handle isn't ingested yet, the ACL hasn't
+ * propagated, we were throttled, or the relayer had a blip. Honest classifier —
+ * rate limits ARE transient. Whether to *retry* one is a separate policy call
+ * (see `isRetryableTransient`). Excludes wallet/signature rejections.
  */
 export function isTransientRelayerError(e: unknown): boolean {
   if (isNotReadyError(e) || isRateLimitedError(e)) return true;
   return /timeout|timed out|network|fetch failed|\b50[234]\b|gateway|unavailable/.test(
     errText(e),
   );
+}
+
+/**
+ * Retry policy for client-driven decrypts: retry the errors that resolve on
+ * their own (coprocessor ingestion, ACL propagation, infra blips) but NOT rate
+ * limits — auto-retrying a 429 just extends the throttle window, so those fail
+ * fast to the user with a "try again in a moment" message instead.
+ */
+function isRetryableTransient(e: unknown): boolean {
+  return isTransientRelayerError(e) && !isRateLimitedError(e);
 }
 
 /**
@@ -123,7 +134,7 @@ export async function userDecryptHandle(
         start,
         durationDays,
       ),
-    { attempts, delayMs },
+    { attempts, delayMs, retryOn: isRetryableTransient },
   );
 
   const clear = res[handle];
