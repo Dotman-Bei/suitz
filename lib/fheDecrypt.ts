@@ -50,6 +50,22 @@ function isRetryableTransient(e: unknown): boolean {
 }
 
 /**
+ * Map a decrypt failure to a user-facing message. Shared by every decrypt entry
+ * point (Decrypt tab + the inline reveal in the Unwrap tab) so the wording stays
+ * consistent. These surface only *after* the in-SDK retries are exhausted, so
+ * they name the real cause instead of blaming the relayer for a timing race.
+ */
+export function humanDecryptError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/reject|denied|signature|user/i.test(msg)) return "Signature rejected.";
+  if (isNotReadyError(e))
+    return "Balance is still settling on-chain. Give it a few seconds and try again.";
+  if (isRateLimitedError(e))
+    return "Too many decrypt requests right now. Try again in a moment.";
+  return "Couldn’t decrypt, the relayer may be busy. Try again.";
+}
+
+/**
  * Retry `fn` on transient relayer failures with a fixed backoff. Non-transient
  * errors (e.g. a rejected signature, a bad handle) throw immediately.
  */

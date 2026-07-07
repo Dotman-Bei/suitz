@@ -11,7 +11,7 @@ import { wagmiConfig } from "@/lib/wagmi";
 import { publicClient } from "@/lib/viemClient";
 import { getFhevm } from "@/lib/fhevm";
 import { getConfidentialDecimals } from "@/lib/confidential";
-import { userDecryptHandle, publicDecryptHandle } from "@/lib/fheDecrypt";
+import { userDecryptHandle, publicDecryptHandle, humanDecryptError } from "@/lib/fheDecrypt";
 import type { FlowStage, WrapperPair } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { useWallet } from "@/components/providers/WalletProvider";
@@ -81,6 +81,7 @@ export function WrapView() {
 
   // inline (in-tab) decryption of the confidential balance, for the unwrap side
   const [decrypting, setDecrypting] = useState(false);
+  const [decryptErr, setDecryptErr] = useState<string | null>(null);
   const [confDecimals, setConfDecimals] = useState<number | null>(null);
 
   const underlyingAddr = selected?.underlying.address;
@@ -312,6 +313,7 @@ export function WrapView() {
   async function decryptConfidential() {
     if (!address || decrypting) return;
     setDecrypting(true);
+    setDecryptErr(null);
     try {
       const token = confidential.address;
       const handle = (await publicClient.readContract({
@@ -323,8 +325,11 @@ export function WrapView() {
       const dec = confDecimals ?? (await getConfidentialDecimals(token));
       const raw = await userDecryptHandle(token, handle, address);
       store.setConfReveal(confidential.symbol, "revealed", formatUnits(raw, dec));
-    } catch {
-      /* non-fatal: the spinner clears in finally; user can retry from the balance row */
+    } catch (e) {
+      // Non-fatal to the unwrap flow, but the user still needs to know why the
+      // reveal didn't happen — otherwise the spinner just clears and nothing
+      // updates. Same classified messaging as the Decrypt tab.
+      setDecryptErr(humanDecryptError(e));
     } finally {
       setDecrypting(false);
     }
@@ -346,7 +351,13 @@ export function WrapView() {
           <div className="panel">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <PairSelect pairs={pairs} selected={selected} onSelect={store.selectPair} />
-              <DirectionToggle mode={mode} onToggle={() => setMode((m) => (m === "wrap" ? "unwrap" : "wrap"))} />
+              <DirectionToggle
+                mode={mode}
+                onToggle={() => {
+                  setDecryptErr(null);
+                  setMode((m) => (m === "wrap" ? "unwrap" : "wrap"));
+                }}
+              />
             </div>
 
             {wrongNetwork && (
@@ -392,6 +403,9 @@ export function WrapView() {
                   <span className="font-mono text-sm">{sourceSym}</span>
                 </span>
               </div>
+              {mode === "unwrap" && decryptErr && confBal?.state !== "revealed" && (
+                <p className="mt-2 text-2xs text-signal-error">{decryptErr}</p>
+              )}
             </motion.div>
 
             {/* arrow */}
