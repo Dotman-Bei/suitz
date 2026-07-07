@@ -9,7 +9,7 @@ path of least resistance*.
 > Built for the Zama Developer Program · Season 3, the Confidential Wrapper
 > Registry bounty.
 
-* **Live demo:** _add your deployed URL here after_ _`Deploying`_ _(below)_
+* **Live demo:** https://suitz.xyz/
 
 * **Network:** Ethereum Sepolia (chain id `11155111`)
 
