@@ -5,7 +5,12 @@ import { formatUnits } from "viem";
 import { usePairs, EMPTY_PAIRS } from "@/lib/usePairs";
 import { WRAPPER_ABI } from "@/lib/abis";
 import { publicClient } from "@/lib/viemClient";
-import { userDecryptHandle, ZERO_HANDLE } from "@/lib/fheDecrypt";
+import {
+  userDecryptHandle,
+  ZERO_HANDLE,
+  isNotReadyError,
+  isRateLimitedError,
+} from "@/lib/fheDecrypt";
 import type { ConfidentialBalance, WrapperPair } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { useWallet } from "@/components/providers/WalletProvider";
@@ -23,6 +28,12 @@ const BAD_DEMO = "0x000000000000000000000000000000000000dEaD";
 function humanDecryptError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/reject|denied|signature|user/i.test(msg)) return "Signature rejected.";
+  // Surfaces only after the in-SDK retries are exhausted, so tell the user what
+  // was actually wrong instead of blaming the relayer for a local timing race.
+  if (isNotReadyError(e))
+    return "Balance is still settling on-chain. Give it a few seconds and try again.";
+  if (isRateLimitedError(e))
+    return "Too many decrypt requests right now. Try again in a moment.";
   return "Couldn’t decrypt, the relayer may be busy. Try again.";
 }
 

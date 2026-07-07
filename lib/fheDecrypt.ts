@@ -5,6 +5,67 @@ import { wagmiConfig } from "./wagmi";
 /** All-zero handle ⇒ uninitialised balance ⇒ cleartext 0 (no signature needed). */
 export const ZERO_HANDLE = /^0x0*$/;
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const errText = (e: unknown) =>
+  (e instanceof Error ? e.message : String(e)).toLowerCase();
+
+/**
+ * The relayer is a shared, off-chain service in front of the threshold-MPC KMS.
+ * The ciphertext for a freshly-produced handle isn't ingested by the coprocessor
+ * the instant its tx is mined, so the relayer answers `not_ready_for_decryption`
+ * for a few seconds. Detected separately so callers can say "still settling"
+ * rather than blaming the relayer.
+ */
+export function isNotReadyError(e: unknown): boolean {
+  return /not_?ready/.test(errText(e));
+}
+
+/** Shared public relayer throttling — a burst of decrypts got rate-limited. */
+export function isRateLimitedError(e: unknown): boolean {
+  return /\b429\b|rate.?limit|too many requests/.test(errText(e));
+}
+
+/**
+ * Transient relayer/KMS failures worth retrying: the handle isn't ingested yet,
+ * the ACL hasn't propagated, we were throttled, or the relayer had a blip.
+ * Deliberately excludes wallet/signature rejections so those fail fast.
+ */
+export function isTransientRelayerError(e: unknown): boolean {
+  if (isNotReadyError(e) || isRateLimitedError(e)) return true;
+  return /timeout|timed out|network|fetch failed|\b50[234]\b|gateway|unavailable/.test(
+    errText(e),
+  );
+}
+
+/**
+ * Retry `fn` on transient relayer failures with a fixed backoff. Non-transient
+ * errors (e.g. a rejected signature, a bad handle) throw immediately.
+ */
+async function withRelayerRetry<T>(
+  fn: () => Promise<T>,
+  {
+    attempts,
+    delayMs,
+    retryOn = isTransientRelayerError,
+  }: { attempts: number; delayMs: number; retryOn?: (e: unknown) => boolean },
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1 && retryOn(e)) {
+        await sleep(delayMs);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Relayer retry exhausted");
+}
+
 /**
  * Run the EIP-712 user-decryption for a single ERC-7984 ciphertext handle and
  * return the cleartext as a bigint. One wallet signature, no gas: the value is
@@ -17,6 +78,7 @@ export async function userDecryptHandle(
   token: `0x${string}`,
   handle: `0x${string}`,
   user: `0x${string}`,
+  { attempts = 8, delayMs = 3000 }: { attempts?: number; delayMs?: number } = {},
 ): Promise<bigint> {
   if (ZERO_HANDLE.test(handle)) return 0n;
 
@@ -46,15 +108,22 @@ export async function userDecryptHandle(
   } as any;
   const signature: string = await walletClient.signTypedData(signParams);
 
-  const res = await instance.userDecrypt(
-    [{ handle, contractAddress: token }],
-    keypair.privateKey,
-    keypair.publicKey,
-    signature.replace(/^0x/, ""),
-    contracts,
-    user,
-    start,
-    durationDays,
+  // Sign once, above; only the relayer round-trip is retried. The EIP-712 grant
+  // is valid for `durationDays`, so a few seconds of backoff stays well inside
+  // its window and never re-prompts the wallet.
+  const res = await withRelayerRetry(
+    () =>
+      instance.userDecrypt(
+        [{ handle, contractAddress: token }],
+        keypair.privateKey,
+        keypair.publicKey,
+        signature.replace(/^0x/, ""),
+        contracts,
+        user,
+        start,
+        durationDays,
+      ),
+    { attempts, delayMs },
   );
 
   const clear = res[handle];
@@ -76,18 +145,16 @@ export async function publicDecryptHandle(
   { attempts = 20, delayMs = 3000 }: { attempts?: number; delayMs?: number } = {},
 ): Promise<{ amount: bigint; proof: `0x${string}` }> {
   const instance = await getFhevm();
-  let lastErr: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
+  // Finalize path: the ciphertext is guaranteed to exist on-chain, so retry on
+  // any error (not just the transient set) until the coprocessor catches up.
+  return withRelayerRetry(
+    async () => {
       const res = await instance.publicDecrypt([handle]);
       // one handle in ⇒ one value out; read it position-independently
       const raw = Object.values(res.clearValues)[0];
       const amount = typeof raw === "bigint" ? raw : BigInt(raw as string);
       return { amount, proof: res.decryptionProof as `0x${string}` };
-    } catch (e) {
-      lastErr = e;
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("Public decryption failed");
+    },
+    { attempts, delayMs, retryOn: () => true },
+  );
 }
