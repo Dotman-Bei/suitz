@@ -10,7 +10,7 @@ const NAV = [
   { label: "Console", href: "/console" },
   { label: "How it works", href: "/#how" },
   { label: "Why suitz", href: "/#why" },
-  { label: "Docs", href: "/#docs" },
+  { label: "Docs", href: "/docs" },
 ];
 
 export function Header() {

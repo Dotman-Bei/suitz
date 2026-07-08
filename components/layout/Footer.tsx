@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
 import { ExternalLink } from "@/components/ui/Icons";
 
 const resources = [
-  { label: "GitHub repository", href: "https://github.com" },
-  { label: "README & docs", href: "/#docs" },
-  { label: "Zama FHEVM docs", href: "https://docs.zama.ai" },
+  { label: "GitHub repository", href: "https://github.com/Dotman-Bei/suitz/" },
+  { label: "Documentation", href: "/docs" },
+  { label: "Zama FHEVM docs", href: "https://docs.zama.org/protocol/sdk" },
   { label: "Wrappers Registry", href: "https://docs.zama.ai" },
 ];
 
@@ -27,11 +26,6 @@ export function Footer() {
               The canonical home for Zama ERC-20 ↔ ERC-7984 wrapper pairs. Find a
               pair, wrap it, decrypt it, unwrap it.
             </p>
-            <div className="mt-6 flex flex-wrap gap-2">
-              <span className="badge border-ink-700 bg-ink-800/70 text-ink-300">Sepolia</span>
-              <span className="badge border-ink-700 bg-ink-800/70 text-ink-300">FHEVM</span>
-              <span className="badge border-ink-700 bg-ink-800/70 text-ink-300">EIP-712</span>
-            </div>
           </div>
 
           <nav>
@@ -64,12 +58,6 @@ export function Footer() {
               Decryption reveals balances only to the connected wallet via an
               EIP-712 signature, never to suitz.
             </p>
-            <Link
-              href="/console"
-              className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-paper underline-offset-4 hover:underline"
-            >
-              Open the console →
-            </Link>
           </div>
         </div>
 

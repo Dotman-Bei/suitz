@@ -1,8 +1,13 @@
+import Image from "next/image";
 import { clsx } from "@/lib/cn";
+import { tokenIcon } from "@/lib/tokenIcons";
+import { Lock } from "@/components/ui/Icons";
 
 /**
- * Monogram avatar for a token. Monochrome by design — confidential tokens get
- * an inverted (ink) treatment so they read as the "encrypted" side of a pair.
+ * Avatar for a token. Known tokens render their real logo full-bleed — the
+ * logo IS the avatar, no tile behind it — and the confidential side is marked
+ * with a small ink lock badge instead of an inverted background. Unknown
+ * tokens fall back to the original monogram tile (inverted when confidential).
  */
 export function TokenGlyph({
   symbol,
@@ -15,6 +20,38 @@ export function TokenGlyph({
   size?: number;
   className?: string;
 }) {
+  const icon = tokenIcon(symbol);
+
+  if (icon) {
+    const badge = Math.round(Math.max(11, size * 0.44));
+    return (
+      <span
+        style={{ width: size, height: size }}
+        className={clsx("relative inline-flex shrink-0 select-none", className)}
+        aria-hidden
+      >
+        {/* unoptimized: tiny static assets straight from /public — no optimizer,
+            which also keeps the SVGs working without dangerouslyAllowSVG. */}
+        <Image
+          src={icon}
+          alt=""
+          width={size}
+          height={size}
+          unoptimized
+          className="h-full w-full rounded-sm object-contain"
+        />
+        {confidential && (
+          <span
+            style={{ width: badge, height: badge }}
+            className="absolute -bottom-1 -right-1 flex items-center justify-center rounded-full bg-ink-900 text-paper ring-2 ring-paper"
+          >
+            <Lock width={Math.round(badge * 0.6)} height={Math.round(badge * 0.6)} />
+          </span>
+        )}
+      </span>
+    );
+  }
+
   const initials = symbol.replace(/^c/, "").slice(0, 2).toUpperCase();
   return (
     <span
