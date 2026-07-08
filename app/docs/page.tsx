@@ -150,15 +150,14 @@ export default function DocsPage() {
                 single source of truth (see{" "}
                 <a href="#sourcing" className="underline underline-offset-4 hover:text-ink-900">Registry sourcing</a>).
               </Term>
-              <Term name="FHEVM & the relayer SDK">
+              <Term name="FHEVM & the Zama SDK">
                 The FHEVM coprocessor executes FHE operations offchain and a KMS
-                controls decryption. In the browser,{" "}
-                <Mono>@zama-fhe/relayer-sdk</Mono> handles the three
-                cryptographic jobs suitz needs: building encrypted inputs
-                (<Mono>createEncryptedInput</Mono>, used for the unwrap amount),
-                EIP-712 <em>user decryption</em> (private, for your own balances),
-                and <em>public decryption</em> (oracle-backed, used to finalize an
-                unwrap).
+                controls decryption. In the browser, the{" "}
+                <Mono>@zama-fhe/sdk</Mono> handles the three cryptographic jobs
+                suitz needs: encrypting inputs (the unwrap amount), EIP-712{" "}
+                <em>user decryption</em> (private, for your own balances, behind
+                a reusable permit), and <em>public decryption</em> (oracle-backed,
+                used to finalize an unwrap).
               </Term>
               <Term name="User vs. public decryption">
                 <em>User decryption</em> reveals a value only to the wallet that
@@ -256,18 +255,21 @@ export default function DocsPage() {
               <H3>Decrypt: EIP-712 user decryption</H3>
               <CodeBlock
                 title="what happens on “decrypt”"
-                code={`handle    = confidentialBalanceOf(you)          // onchain read
-keypair   = ephemeral keypair                    // relayer SDK, in-browser
-signature = wallet.signTypedData(EIP-712 grant)  // one signature, no gas
-balance   = userDecrypt(handle, signature)       // decrypted locally`}
+                code={`handle = confidentialBalanceOf(you)       // onchain read
+permit = wallet.signTypedData(EIP-712)    // one signature, no gas — then
+                                          // reused for the rest of the session
+balance = decryptValues(handle, permit)   // decrypted locally, cached`}
               />
               <P>
-                The cleartext is scoped to the connected wallet and never leaves
-                the browser. This works on <em>any</em> ERC-7984 address, in the
-                registry or not; suitz first probes the address onchain
-                (<Mono>underlying()</Mono> / ERC-165) and gives a precise error if
-                it isn&rsquo;t an ERC-7984 token. Transient relayer hiccups are
-                retried automatically before you ever see an error.
+                The first decrypt of a session takes one signature; the permit is
+                held in memory only (never in long-lived storage), so every
+                further decrypt that session is silent and closing the tab
+                revokes it. The cleartext is scoped to the connected wallet and
+                never leaves the browser. This works on <em>any</em> ERC-7984
+                address, in the registry or not; suitz first probes the address
+                onchain (<Mono>underlying()</Mono> / ERC-165) and gives a precise
+                error if it isn&rsquo;t an ERC-7984 token. Transient relayer
+                hiccups are retried automatically before you ever see an error.
               </P>
 
               <H3>Unwrap: ERC-7984 → ERC-20, the async one</H3>
@@ -277,14 +279,14 @@ balance   = userDecrypt(handle, signature)       // decrypted locally`}
                 drives it as a two-step, dApp-driven flow:
               </P>
               <CodeBlock
-                title="the unwrap state machine"
+                title="the unwrap state machine (WrappedToken.unshield)"
                 code={`// 1: encrypting → submitting
-enc, proof = createEncryptedInput(amount)        // client-side
+enc, proof = encrypt(amount)                     // client-side, in a worker
 unwrap(from, to, enc, proof)                     // burns cToken,
                                                  // emits UnwrapRequested(handle)
 
 // 2: finalizing → settled
-cleartext, kmsProof = publicDecrypt(handle)      // retried while the
+cleartext, kmsProof = publicDecrypt(handle)      // awaited while the
                                                  // coprocessor ingests
 finalizeUnwrap(handle, cleartext, kmsProof)      // releases the ERC-20`}
               />
@@ -292,7 +294,8 @@ finalizeUnwrap(handle, cleartext, kmsProof)      // releases the ERC-20`}
                 If the second transaction fails or is abandoned, nothing is lost:
                 the burned balance surfaces as a{" "}
                 <strong className="font-medium text-ink-900">claimable pending unwrap</strong>{" "}
-                you can retry from the UI at any time.
+                — persisted in your browser, so the claim survives a page reload —
+                that you can retry from the UI at any time.
               </P>
 
               <H3>Recovering a stuck unwrap from the CLI</H3>
@@ -554,7 +557,7 @@ npm run dev                  # http://localhost:3000`}
               <H3>Deploying</H3>
               <P>
                 A standard Next.js 14 project; it deploys cleanly to Vercel or any
-                Node host. One thing matters: the relayer SDK&rsquo;s WASM uses{" "}
+                Node host. One thing matters: the Zama SDK&rsquo;s WASM uses{" "}
                 <Mono>SharedArrayBuffer</Mono> and worker threads for input-proof
                 generation, which requires{" "}
                 <strong className="font-medium text-ink-900">cross-origin isolation</strong>.

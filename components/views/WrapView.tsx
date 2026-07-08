@@ -4,14 +4,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { useReadContract, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "@wagmi/core";
-import { bytesToHex, decodeEventLog, formatUnits, parseUnits, type Log } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { usePairs, EMPTY_PAIRS } from "@/lib/usePairs";
 import { ERC20_ABI, WRAPPER_ABI } from "@/lib/abis";
 import { wagmiConfig } from "@/lib/wagmi";
 import { publicClient } from "@/lib/viemClient";
-import { getFhevm } from "@/lib/fhevm";
+import { getZama } from "@/lib/fhevm";
 import { getConfidentialDecimals } from "@/lib/confidential";
-import { userDecryptHandle, publicDecryptHandle, humanDecryptError } from "@/lib/fheDecrypt";
+import { userDecryptHandle, humanDecryptError } from "@/lib/fheDecrypt";
 import type { FlowStage, WrapperPair } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { useWallet } from "@/components/providers/WalletProvider";
@@ -26,37 +26,21 @@ const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
 type Mode = "wrap" | "unwrap";
 
 function humanError(e: unknown): string {
+  // The Zama SDK throws typed errors with a stable `.code` — match those first.
+  const code =
+    typeof e === "object" && e !== null && typeof (e as { code?: unknown }).code === "string"
+      ? (e as { code: string }).code
+      : undefined;
+  if (code === "SIGNING_REJECTED") return "Request rejected in wallet.";
+  if (code === "INSUFFICIENT_CONFIDENTIAL_BALANCE") return "Amount exceeds your confidential balance.";
+  if (code === "INSUFFICIENT_ERC20_BALANCE") return "Insufficient token balance.";
+  if (code === "TRANSACTION_REVERTED") return "Transaction reverted onchain, try again.";
   const msg = e instanceof Error ? e.message : String(e);
   if (/reject|denied|user/i.test(msg)) return "Request rejected in wallet.";
   if (/insufficient funds/i.test(msg)) return "Need Sepolia ETH for gas.";
   if (/exceeds balance|transfer amount exceeds/i.test(msg)) return "Insufficient token balance.";
   if (/out of range|overflow|must be less than|too large/i.test(msg)) return "Amount is too large for this token.";
   return "Transaction failed, try again.";
-}
-
-const toHex = (v: Uint8Array | string): `0x${string}` =>
-  typeof v === "string" ? (v.startsWith("0x") ? (v as `0x${string}`) : (`0x${v}` as `0x${string}`)) : bytesToHex(v);
-
-/**
- * Pull the euint64 handle the wrapper queued for decryption out of the unwrap
- * receipt. finalizeUnwrap needs it to fetch the cleartext + KMS proof and
- * release the ERC-20.
- */
-function extractUnwrapHandle(logs: Log[], wrapper: `0x${string}`): `0x${string}` | null {
-  const w = wrapper.toLowerCase();
-  for (const log of logs) {
-    if (log.address.toLowerCase() !== w) continue;
-    try {
-      const ev = decodeEventLog({ abi: WRAPPER_ABI, data: log.data, topics: log.topics });
-      if (ev.eventName === "UnwrapRequested") {
-        const args = ev.args as { handle?: `0x${string}`; requestId?: `0x${string}` };
-        return args.handle ?? args.requestId ?? null;
-      }
-    } catch {
-      /* not the UnwrapRequested event — skip */
-    }
-  }
-  return null;
 }
 
 export function WrapView() {
@@ -74,9 +58,10 @@ export function WrapView() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [finalizePending, setFinalizePending] = useState(false);
-  // handle of a burned-but-not-yet-released unwrap, so a failed finalize can be
-  // retried (the ERC-7984 is already burned — the ERC-20 is still claimable).
-  const [pendingHandle, setPendingHandle] = useState<`0x${string}` | null>(null);
+  // unwrap tx of a burned-but-not-yet-released unwrap, so a failed finalize can
+  // be retried (the ERC-7984 is already burned — the ERC-20 is still claimable).
+  // The SDK persists this too, so a claim survives page reloads.
+  const [pendingTx, setPendingTx] = useState<`0x${string}` | null>(null);
   const busyRef = useRef(false);
 
   // inline (in-tab) decryption of the confidential balance, for the unwrap side
@@ -99,10 +84,10 @@ export function WrapView() {
     };
   }, [wrapperAddr]);
 
-  // Warm up the FHEVM SDK (WASM + key material) ahead of time so the first
-  // unwrap doesn't pay init cost on top of the proof generation.
+  // Warm up the Zama SDK (worker + WASM) ahead of time so the first unwrap
+  // doesn't pay init cost on top of the proof generation.
   useEffect(() => {
-    if (connected) void getFhevm().catch(() => {});
+    if (connected) void getZama().catch(() => {});
   }, [connected]);
 
   // live ERC-20 balance + allowance for the selected pair (wrap side)
@@ -132,10 +117,26 @@ export function WrapView() {
 
   // A pending unwrap belongs to one wrapper — drop it when the pair or direction
   // changes (but NOT when only the amount is edited, so the claim survives edits).
+  // Then ask the SDK whether this wrapper has a persisted interrupted unshield
+  // (it stores the unwrap tx across reloads), and surface the claim if so.
   useEffect(() => {
-    setPendingHandle(null);
+    setPendingTx(null);
     setFinalizePending(false);
-  }, [mode, selected?.id]);
+    if (!connected || !wrapperAddr) return;
+    let alive = true;
+    getZama()
+      .then((sdk) => sdk.createWrappedToken(wrapperAddr).getPendingUnshield())
+      .then((tx) => {
+        if (alive && tx) {
+          setPendingTx(tx);
+          setFinalizePending(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [mode, selected?.id, connected, wrapperAddr]);
 
   if (!selected) return null;
 
@@ -208,32 +209,6 @@ export function WrapView() {
     }
   }
 
-  /**
-   * Step 2 of unwrap: turn a queued decryption `handle` into the released
-   * ERC-20. Public-decrypts the amount + KMS proof from the relayer, then calls
-   * finalizeUnwrap. Split out so it can be retried on its own — once the ERC-7984
-   * is burned the ERC-20 stays claimable, so a failure here must never strand it.
-   */
-  async function finalizeUnwrap(reqHandle: `0x${string}`, wrapper: `0x${string}`, dec: number) {
-    setStage("finalizing");
-    setPendingHandle(reqHandle);
-    // fetch cleartext amount + KMS signatures (retries until the coprocessor is ready)
-    const { amount: clearAmount, proof } = await publicDecryptHandle(reqHandle);
-    const finalizeHash = await writeContractAsync({
-      address: wrapper,
-      abi: WRAPPER_ABI,
-      functionName: "finalizeUnwrap",
-      args: [reqHandle, clearAmount, proof],
-    });
-    await waitForTransactionReceipt(wagmiConfig, { hash: finalizeHash });
-    setTxHash(finalizeHash);
-    await refetchBal();
-    store.subConf(confidential.symbol, Number(formatUnits(clearAmount, dec)));
-    setPendingHandle(null);
-    setFinalizePending(false);
-    setStage("settled");
-  }
-
   async function runUnwrap() {
     if (busyRef.current || !address || !wrapperAddr) return;
     busyRef.current = true;
@@ -245,42 +220,40 @@ export function WrapView() {
     try {
       setStage("encrypting");
       // Yield a frame so the "Encrypting…" step actually paints before the proof
-      // generation locks the main thread (otherwise the page looks frozen).
+      // generation kicks off (the worker startup can still hitch the main thread).
       await new Promise((r) => setTimeout(r, 30));
 
       // Confidential balances are euint64, so the wrapper exposes its OWN decimals
       // (capped so amounts fit 64 bits) — distinct from the underlying's. The
       // registry seeds confidential.decimals from the underlying, which overflows
-      // uint64 for 18-decimal tokens and makes add64() throw. Use the real value.
+      // uint64 for 18-decimal tokens. Use the real value.
       const dec = confDecimals ?? (await getConfidentialDecimals(wrapperAddr));
       const amountBase = parseUnits(amount || "0", dec);
 
-      // 1 — encrypt the unwrap amount client-side (relayer SDK)
-      const instance = await getFhevm();
-      const input = instance.createEncryptedInput(wrapperAddr, address);
-      input.add64(amountBase);
-      const enc = await input.encrypt();
-      const encHandle = toHex(enc.handles[0]);
-      const proof = toHex(enc.inputProof);
-
-      // 2 — submit unwrap: burns the ERC-7984 and queues the amount for decryption
-      setStage("submitting");
-      const hash = await writeContractAsync({
-        address: wrapperAddr,
-        abi: WRAPPER_ABI,
-        functionName: "unwrap",
-        args: [address, address, encHandle, proof],
+      // The SDK orchestrates the whole two-phase flow: encrypt the amount →
+      // submit unwrap (burns the ERC-7984) → wait for the public decryption
+      // proof → submit finalizeUnwrap (releases the ERC-20). Its callbacks map
+      // straight onto the stepper. skipBalanceCheck: the UI already gates the
+      // amount on the freshly decrypted balance above.
+      const sdk = await getZama();
+      const wrapped = sdk.createWrappedToken(wrapperAddr);
+      const { txHash: finalizeHash } = await wrapped.unshield(amountBase, {
+        skipBalanceCheck: true,
+        onUnwrapSubmitted: (hash) => {
+          burned = true;
+          setPendingTx(hash);
+          setTxHash(hash);
+          setStage("submitting");
+        },
+        onFinalizing: () => setStage("finalizing"),
+        onFinalizeSubmitted: (hash) => setTxHash(hash),
       });
-      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
-      setTxHash(hash);
-      burned = true;
-
-      // 3 — finalize: fetch the public decryption + proof and release the ERC-20.
-      // This second tx is what the old flow was missing — without it the burned
-      // balance never converts back and the ERC-20 never arrives.
-      const reqHandle = extractUnwrapHandle(receipt.logs as Log[], wrapperAddr);
-      if (!reqHandle) throw new Error("Unwrap request handle not found in logs");
-      await finalizeUnwrap(reqHandle, wrapperAddr, dec);
+      setTxHash(finalizeHash);
+      await refetchBal();
+      store.subConf(confidential.symbol, amt);
+      setPendingTx(null);
+      setFinalizePending(false);
+      setStage("settled");
     } catch (e) {
       setErrorMsg(humanError(e));
       setFinalizePending(burned);
@@ -290,14 +263,28 @@ export function WrapView() {
     }
   }
 
-  /** Retry just the finalize (claim) step for an already-burned unwrap. */
+  /**
+   * Retry just the finalize (claim) step for an already-burned unwrap. The SDK
+   * re-reads the unwrap receipt from the stored tx hash, waits for the proof,
+   * and submits finalizeUnwrap — safe to run any time, even after a reload.
+   */
   async function runClaim() {
-    if (busyRef.current || !wrapperAddr || !pendingHandle) return;
+    if (busyRef.current || !wrapperAddr || !pendingTx) return;
     busyRef.current = true;
     setErrorMsg(null);
     try {
-      const dec = confDecimals ?? (await getConfidentialDecimals(wrapperAddr));
-      await finalizeUnwrap(pendingHandle, wrapperAddr, dec);
+      setStage("finalizing");
+      const sdk = await getZama();
+      const wrapped = sdk.createWrappedToken(wrapperAddr);
+      const { txHash: finalizeHash } = await wrapped.resumeUnshield(pendingTx, {
+        onFinalizeSubmitted: (hash) => setTxHash(hash),
+      });
+      setTxHash(finalizeHash);
+      await refetchBal();
+      if (amt > 0) store.subConf(confidential.symbol, amt);
+      setPendingTx(null);
+      setFinalizePending(false);
+      setStage("settled");
     } catch (e) {
       setErrorMsg(humanError(e));
       setFinalizePending(true);
@@ -497,7 +484,7 @@ export function WrapView() {
                   className="w-full"
                   size="lg"
                   loading={stage === "finalizing"}
-                  disabled={wrongNetwork || !pendingHandle}
+                  disabled={wrongNetwork || !pendingTx}
                   onClick={runClaim}
                 >
                   {stage === "finalizing" ? "Claiming…" : `Claim ${underlying.symbol}`}
@@ -716,7 +703,7 @@ const WRAP_STEPS = [
   { key: "wrap", label: "Wrap → mint ERC-7984" },
 ];
 const UNWRAP_STEPS = [
-  { key: "encrypt", label: "Encrypt amount (relayer SDK)" },
+  { key: "encrypt", label: "Encrypt amount (Zama SDK)" },
   { key: "submit", label: "Submit unwrap (burns ERC-7984)" },
   { key: "finalize", label: "Decrypt proof + finalizeUnwrap" },
   { key: "settle", label: "ERC-20 released" },
@@ -891,7 +878,7 @@ function SummaryPanel({
           </ol>
         ) : (
           <ol className="mt-4 space-y-3 text-sm text-ink-600">
-            <li>1 · The amount is encrypted client-side via the relayer SDK.</li>
+            <li>1 · The amount is encrypted client-side via the Zama SDK.</li>
             <li>2 · <code className="font-mono text-ink-900">unwrap()</code> burns the ERC-7984 and queues the amount for decryption.</li>
             <li>3 · The relayer publicly decrypts it, returning the value + KMS proof.</li>
             <li>4 · <code className="font-mono text-ink-900">finalizeUnwrap()</code> releases your ERC-20 in a second tx.</li>

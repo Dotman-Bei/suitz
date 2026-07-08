@@ -94,8 +94,8 @@ lib/
   network.ts          RPC + repo-url env resolution
   registry.ts         onchain registry read + hybrid resolvePairs() + probe/hydrate
   abis.ts             typed ERC-20 + ERC-7984 wrapper ABIs
-  fhevm.ts            lazy singleton for the FHEVM relayer SDK (browser-only WASM)
-  fheDecrypt.ts       EIP-712 userDecrypt + publicDecrypt helpers
+  fhevm.ts            lazy singleton for the Zama SDK (browser-only WASM worker)
+  fheDecrypt.ts       user-decryption helper (permits + caching via the Zama SDK)
   confidential.ts     wrapper decimals (uint64-safe) reader + cache
   types.ts            domain types
   format.ts           address/number/explorer helpers
@@ -117,10 +117,15 @@ The app runs against Sepolia directly; there is no mock layer.
   multicall-hydrates token metadata, with a verified in-repo seed as a graceful
   fallback (details below).
 
-* **Confidential compute**: `@zama-fhe/relayer-sdk` handles encrypted inputs
-  (`createEncryptedInput` for the unwrap amount), EIP-712 **user decryption**
-  (Decrypt tab), and **public decryption** (unwrap finalize). The SDK's WASM is
-  dynamically imported so it never touches the server bundle.
+* **Confidential compute**: the **Zama SDK** (`@zama-fhe/sdk`). A lazily-created
+  `ZamaSDK` singleton (`lib/fhevm.ts`) powers EIP-712 **user decryption**
+  (Decrypt tab) — one signature per session creates a reusable permit (kept in
+  memory only, so it dies with the tab; the security-conservative split Zama
+  documents), and every further decrypt that session is silent — and a
+  `WrappedToken` orchestrates the two-phase **unwrap** (encrypt → burn →
+  public-decryption proof → finalize), persisting interrupted unwraps so they
+  stay claimable across reloads. The SDK is dynamically imported so its WASM
+  worker never touches the server bundle.
 
 Because the UI is written entirely against the typed domain model in
 `lib/types.ts`, contract specifics stay isolated in `lib/` and never leak into
@@ -207,22 +212,25 @@ the point of being registry-native.
   an encrypted balance). Each step is its own state in the stepper.
 
 * **Decrypt (EIP-712 user decryption)**: read the `confidentialBalanceOf`
-  handle, generate an ephemeral keypair + EIP-712 grant via the relayer SDK, take
-  **one wallet signature (no gas)**, and `userDecrypt` locally. The cleartext is
-  scoped to the connected wallet and never leaves the browser. Works on any
+  handle and decrypt it through the Zama SDK — **one wallet signature (no gas)
+  per session** creates a reusable permit (held in memory, never in long-lived
+  storage), so every further decrypt that session needs no prompt. The cleartext
+  is scoped to the connected wallet and never leaves the browser. Works on any
   ERC-7984 address, in the registry or not.
 
 * **Unwrap (ERC-7984 → ERC-20): the async one.** This is not atomic on FHEVM
-  and is a **two-step, dApp-driven** flow:
+  and is a **two-step, dApp-driven** flow, orchestrated by the Zama SDK's
+  `WrappedToken.unshield()`:
 
-  1. `createEncryptedInput` encrypts the amount client-side → `unwrap(from, to,
-     enc, proof)` burns the ERC-7984 and emits `UnwrapRequested` carrying the
-     euint64 handle queued for public decryption.
-  2. `publicDecrypt(handle)` (retried while the coprocessor ingests) returns the
-     cleartext + KMS proof → `finalizeUnwrap(handle, amount, proof)` releases the
-     ERC-20. The UI models `encrypting → submitting → finalizing → settled`
-     explicitly, and if the second tx fails the burned balance is surfaced as a
-     **claimable pending unwrap** you can retry, never stranded.
+  1. The amount is encrypted client-side → `unwrap(from, to, enc, proof)` burns
+     the ERC-7984 and emits `UnwrapRequested` carrying the euint64 handle queued
+     for public decryption.
+  2. The SDK waits for the public decryption (cleartext + KMS proof) →
+     `finalizeUnwrap(handle, amount, proof)` releases the ERC-20. The UI models
+     `encrypting → submitting → finalizing → settled` explicitly via the SDK's
+     progress callbacks, and if the second tx fails the burned balance is
+     surfaced as a **claimable pending unwrap** — persisted by the SDK, so the
+     claim survives page reloads and is resumed with `resumeUnshield()`.
 
 ## Recovering a stuck unwrap
 
@@ -251,7 +259,7 @@ Node host):
 3. Deploy, then paste the resulting URL into **Live demo** at the top of this
    README.
 
-The FHEVM relayer SDK's WASM uses `SharedArrayBuffer` + worker threads for
+The Zama SDK's WASM uses `SharedArrayBuffer` + worker threads for
 input-proof generation, which requires **cross-origin isolation**. The required
 `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy:
 credentialless` headers are already configured in

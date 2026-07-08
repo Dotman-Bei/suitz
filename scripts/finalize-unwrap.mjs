@@ -20,7 +20,10 @@
  *   # or submit directly with a funded key (testnet only):
  *   PRIVATE_KEY=0x... node scripts/finalize-unwrap.mjs --tx 0x... --send
  */
-import { createInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk/node";
+import { ZamaSDK, createConfig, memoryStorage } from "@zama-fhe/sdk";
+import { node } from "@zama-fhe/sdk/node";
+import { ViemProvider } from "@zama-fhe/sdk/viem";
+import { sepolia as sepoliaFhe } from "@zama-fhe/sdk/chains";
 import {
   createPublicClient,
   createWalletClient,
@@ -77,12 +80,25 @@ if (!handle || !wrapper) {
 console.log("wrapper:", wrapper);
 console.log("handle: ", handle);
 
-// 1 — public decryption: cleartext amount + KMS signatures
-const instance = await createInstance({ ...SepoliaConfig, network: RPC });
+// 1 — public decryption: cleartext amount + KMS signatures. Read-only SDK
+// (provider, no signer) — decryptPublicValues needs no wallet.
+const sdk = new ZamaSDK(
+  createConfig({
+    chains: [{ ...sepoliaFhe, network: RPC }],
+    provider: new ViemProvider({ publicClient: client }),
+    storage: memoryStorage,
+    relayers: { [sepoliaFhe.id]: node() },
+  }),
+);
 console.log("fetching public decryption…");
-const res = await instance.publicDecrypt([handle]);
-const amount = BigInt(Object.values(res.clearValues)[0]);
-const proof = res.decryptionProof;
+let amount, proof;
+try {
+  const res = await sdk.decryption.decryptPublicValues([handle]);
+  amount = BigInt(Object.values(res.clearValues)[0]);
+  proof = res.decryptionProof;
+} finally {
+  sdk.terminate(); // stop the worker pool so the process can exit
+}
 
 const underlying = await client.readContract({ address: wrapper, abi: WRAPPER_ABI, functionName: "underlying" });
 const confDec = await client.readContract({ address: wrapper, abi: WRAPPER_ABI, functionName: "decimals" });
