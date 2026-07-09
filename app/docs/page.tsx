@@ -256,16 +256,22 @@ export default function DocsPage() {
               <CodeBlock
                 title="what happens on “decrypt”"
                 code={`handle = confidentialBalanceOf(you)       // onchain read
-permit = wallet.signTypedData(EIP-712)    // one signature, no gas — then
-                                          // reused for the rest of the session
-balance = decryptValues(handle, permit)   // decrypted locally, cached`}
+permit = grantPermit(yourTokens)          // ONE EIP-712 signature, no gas —
+                                          // covers every token, reused all session
+balance = decryptValues(handle)           // re-encrypted by the relayer,
+                                          // decrypted locally & cached`}
               />
               <P>
-                The first decrypt of a session takes one signature; the permit is
-                held in memory only (never in long-lived storage), so every
-                further decrypt that session is silent and closing the tab
-                revokes it. The cleartext is scoped to the connected wallet and
-                never leaves the browser. This works on <em>any</em> ERC-7984
+                The first decrypt of a session takes one signature — and that
+                single permit covers <em>every</em> token in the registry at once,
+                so switching tokens afterwards is silent (a brand-new address
+                outside the registry costs one more signature to fold it in). The
+                permit is held in memory only (never in long-lived storage), so
+                closing the tab revokes it. The UI is honest about which path it
+                took: it only says <em>awaiting signature</em> when it actually
+                signs, and <em>session key found</em> when it reuses the saved
+                permit with no prompt. The cleartext is scoped to the connected
+                wallet and never leaves the browser. This works on any ERC-7984
                 address, in the registry or not; suitz first probes the address
                 onchain (<Mono>underlying()</Mono> / ERC-165) and gives a precise
                 error if it isn&rsquo;t an ERC-7984 token. Transient relayer

@@ -1,7 +1,20 @@
+import { getAddress } from "viem";
 import { getZama } from "./fhevm";
 
 /** All-zero handle ⇒ uninitialised balance ⇒ cleartext 0 (no signature needed). */
 export const ZERO_HANDLE = /^0x0*$/;
+
+/**
+ * Coarse phases a single user-decrypt moves through, surfaced to the UI (via
+ * `onPhase`) so it can narrate the difference between signing a fresh session
+ * permit and silently reusing a saved one. Cosmetic only — the decrypt succeeds
+ * regardless of which phases it passes through.
+ */
+export type DecryptPhase =
+  | "checking" // looking up whether a saved permit already covers this token
+  | "awaiting-signature" // no covering permit → the wallet prompt is up
+  | "reusing" // a saved session permit covers it → decrypting, no prompt
+  | "relaying"; // fresh permit just signed → re-encrypting via the relayer
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,6 +30,11 @@ const errStatus = (e: unknown): number | undefined =>
   typeof e === "object" && e !== null && typeof (e as { statusCode?: unknown }).statusCode === "number"
     ? (e as { statusCode: number }).statusCode
     : undefined;
+/** ethers/viem surface JSON-RPC error codes (e.g. -32005) as a numeric `.code`. */
+const errCodeNum = (e: unknown): number | undefined =>
+  typeof e === "object" && e !== null && typeof (e as { code?: unknown }).code === "number"
+    ? (e as { code: number }).code
+    : undefined;
 
 /**
  * The relayer is a shared, off-chain service in front of the threshold-MPC KMS.
@@ -29,10 +47,18 @@ export function isNotReadyError(e: unknown): boolean {
   return /not_?ready/.test(errText(e));
 }
 
-/** Shared public relayer throttling — a burst of decrypts got rate-limited. */
+/**
+ * Rate limiting from either side of the pipe: the shared public relayer
+ * throttling a burst of decrypts, or the consumer's own RPC provider throttling
+ * the on-chain reads a decrypt depends on (HTTP 429 / JSON-RPC -32005). The SDK
+ * tags the latter `RPC_RATE_LIMITED`; a raw ethers/viem read that escapes the
+ * SDK only carries the numeric -32005 code or "too many requests" text.
+ */
 export function isRateLimitedError(e: unknown): boolean {
   if (errStatus(e) === 429) return true;
-  return /\b429\b|rate.?limit|too many requests|relayer is busy/.test(errText(e));
+  if (errCode(e) === "RPC_RATE_LIMITED") return true;
+  if (errCodeNum(e) === -32005) return true;
+  return /\b429\b|-32005|rate.?limit|too many requests|relayer is busy/.test(errText(e));
 }
 
 /**
@@ -88,6 +114,8 @@ export function humanDecryptError(e: unknown): string {
     return "Wallet not connected. Reconnect and try again.";
   if (code === "OPERATION_TIMEOUT" || code === "WORKER_RECYCLED")
     return "The decryption timed out — the network may be slow. Try again.";
+  if (code === "RPC_RATE_LIMITED")
+    return "The network RPC is rate-limiting requests. Try again in a moment.";
   const msg = e instanceof Error ? e.message : String(e);
   if (/reject|denied|signature|user/i.test(msg)) return "Signature rejected.";
   if (isNotReadyError(e))
@@ -143,13 +171,57 @@ export async function userDecryptHandle(
   token: `0x${string}`,
   handle: `0x${string}`,
   user: `0x${string}`,
-  { attempts = 8, delayMs = 3000 }: { attempts?: number; delayMs?: number } = {},
+  {
+    attempts = 8,
+    delayMs = 3000,
+    coverContracts,
+    onPhase,
+  }: {
+    attempts?: number;
+    delayMs?: number;
+    coverContracts?: readonly string[];
+    onPhase?: (phase: DecryptPhase) => void;
+  } = {},
 ): Promise<bigint> {
   if (!user) throw new Error("Wallet not connected");
   if (ZERO_HANDLE.test(handle)) return 0n;
 
   const sdk = await getZama();
   try {
+    // One signature per session across every known token. A Zama permit is scoped
+    // to a fixed set of contracts, so a permit for just this token would mean a
+    // fresh wallet prompt for every *new* token. We resolve a permit covering the
+    // whole known set up front and report each phase to `onPhase`, so the UI can
+    // tell "awaiting a fresh signature" apart from "reusing the saved session
+    // permit". A malformed cover address is skipped rather than failing the decrypt.
+    onPhase?.("checking");
+    const scope = [
+      ...new Set(
+        [token, ...(coverContracts ?? [])].flatMap((a) => {
+          try {
+            return [getAddress(a)];
+          } catch {
+            return [];
+          }
+        }),
+      ),
+    ];
+    let covered = true;
+    if (scope.length > 0) {
+      try {
+        covered = await sdk.permits.hasPermit(scope);
+      } catch {
+        covered = false; // store hiccup — fall through to a (possibly no-op) grant
+      }
+    }
+    if (covered) {
+      onPhase?.("reusing");
+    } else {
+      onPhase?.("awaiting-signature");
+      // Chunks ≤10 contracts per prompt; idempotent for any already-covered subset.
+      await sdk.permits.grantPermit(scope);
+      onPhase?.("relaying");
+    }
     const res = await withRelayerRetry(
       () => sdk.decryption.decryptValues([{ encryptedValue: handle, contractAddress: token }]),
       { attempts, delayMs, retryOn: isRetryableTransient },

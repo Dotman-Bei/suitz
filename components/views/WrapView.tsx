@@ -11,7 +11,7 @@ import { wagmiConfig } from "@/lib/wagmi";
 import { publicClient } from "@/lib/viemClient";
 import { getZama } from "@/lib/fhevm";
 import { getConfidentialDecimals } from "@/lib/confidential";
-import { userDecryptHandle, humanDecryptError } from "@/lib/fheDecrypt";
+import { userDecryptHandle, humanDecryptError, type DecryptPhase } from "@/lib/fheDecrypt";
 import type { FlowStage, WrapperPair } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { useWallet } from "@/components/providers/WalletProvider";
@@ -66,6 +66,7 @@ export function WrapView() {
 
   // inline (in-tab) decryption of the confidential balance, for the unwrap side
   const [decrypting, setDecrypting] = useState(false);
+  const [decryptPhase, setDecryptPhase] = useState<DecryptPhase>("checking");
   const [decryptErr, setDecryptErr] = useState<string | null>(null);
   const [confDecimals, setConfDecimals] = useState<number | null>(null);
 
@@ -300,6 +301,7 @@ export function WrapView() {
   async function decryptConfidential() {
     if (!address || decrypting) return;
     setDecrypting(true);
+    setDecryptPhase("checking");
     setDecryptErr(null);
     try {
       const token = confidential.address;
@@ -310,7 +312,10 @@ export function WrapView() {
         args: [address],
       })) as `0x${string}`;
       const dec = confDecimals ?? (await getConfidentialDecimals(token));
-      const raw = await userDecryptHandle(token, handle, address);
+      const raw = await userDecryptHandle(token, handle, address, {
+        coverContracts: pairs.map((p) => p.confidential.address),
+        onPhase: setDecryptPhase,
+      });
       store.setConfReveal(confidential.symbol, "revealed", formatUnits(raw, dec));
     } catch (e) {
       // Non-fatal to the unwrap flow, but the user still needs to know why the
@@ -370,6 +375,7 @@ export function WrapView() {
                   erc20={erc20Bal}
                   conf={confBal}
                   decrypting={decrypting}
+                  decryptPhase={decryptPhase}
                   onMax={() => {
                     if (mode === "wrap") setAmount(String(erc20Bal));
                     else if (unwrapKnownMax !== null) setAmount(String(unwrapKnownMax));
@@ -643,6 +649,14 @@ function DirectionToggle({ mode, onToggle }: { mode: Mode; onToggle: () => void 
   );
 }
 
+/** Compact decrypt-phase labels for the inline Unwrap-tab reveal button. */
+const DECRYPT_SHORT: Record<DecryptPhase, string> = {
+  checking: "checking…",
+  "awaiting-signature": "awaiting signature…",
+  reusing: "using session key…",
+  relaying: "decrypting…",
+};
+
 function BalanceLabel({
   mode,
   erc20,
@@ -650,6 +664,7 @@ function BalanceLabel({
   onMax,
   onDecrypt,
   decrypting,
+  decryptPhase,
 }: {
   mode: Mode;
   erc20: number;
@@ -657,6 +672,7 @@ function BalanceLabel({
   onMax: () => void;
   onDecrypt: () => void;
   decrypting?: boolean;
+  decryptPhase?: DecryptPhase;
 }) {
   if (mode === "wrap") {
     return (
@@ -687,7 +703,7 @@ function BalanceLabel({
     >
       {decrypting ? (
         <>
-          <Spinner width={12} height={12} /> decrypting…
+          <Spinner width={12} height={12} /> {DECRYPT_SHORT[decryptPhase ?? "checking"]}
         </>
       ) : (
         <>

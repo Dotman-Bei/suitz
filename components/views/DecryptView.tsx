@@ -5,7 +5,7 @@ import { formatUnits } from "viem";
 import { usePairs, EMPTY_PAIRS } from "@/lib/usePairs";
 import { WRAPPER_ABI } from "@/lib/abis";
 import { publicClient } from "@/lib/viemClient";
-import { userDecryptHandle, ZERO_HANDLE, humanDecryptError } from "@/lib/fheDecrypt";
+import { userDecryptHandle, ZERO_HANDLE, humanDecryptError, type DecryptPhase } from "@/lib/fheDecrypt";
 import type { ConfidentialBalance, WrapperPair } from "@/lib/types";
 import { useStore } from "@/components/providers/AppStore";
 import { useWallet } from "@/components/providers/WalletProvider";
@@ -32,6 +32,7 @@ export function DecryptView() {
   const [notErc7984, setNotErc7984] = useState(false);
   const [loading, setLoading] = useState(false);
   const [decryptError, setDecryptError] = useState<string | null>(null);
+  const [decryptPhase, setDecryptPhase] = useState<DecryptPhase>("checking");
 
   useEffect(() => {
     if (store.decryptTarget) setAddress(store.decryptTarget);
@@ -57,27 +58,38 @@ export function DecryptView() {
     // Keep-alive: this view stays mounted across tab switches, so re-scan each
     // time it becomes active (picks up tokens wrapped since the last visit).
     if (store.tab !== "decrypt") return;
+    if (pairs.length === 0) {
+      setDetected([]);
+      return;
+    }
     let alive = true;
     setDetecting(true);
     (async () => {
-      const hits = await Promise.all(
-        pairs.map(async (p) => {
-          try {
-            const handle = await publicClient.readContract({
-              address: p.confidential.address as `0x${string}`,
-              abi: WRAPPER_ABI,
-              functionName: "confidentialBalanceOf",
-              args: [userAddress],
-            });
-            return ZERO_HANDLE.test(handle as string) ? null : p;
-          } catch {
-            return null; // not reachable / not an ERC-7984 — skip it
-          }
-        }),
-      );
-      if (!alive) return;
-      setDetected(hits.filter((p): p is WrapperPair => Boolean(p)));
-      setDetecting(false);
+      try {
+        // One Multicall3 round-trip for every registry pair instead of N parallel
+        // eth_calls. This scan re-runs on each tab activation, so batching keeps a
+        // shared/public RPC from rate-limiting the whole view. allowFailure skips
+        // any address that isn't a live ERC-7984 (its call reverts / decodes empty).
+        const results = await publicClient.multicall({
+          allowFailure: true,
+          contracts: pairs.map((p) => ({
+            address: p.confidential.address as `0x${string}`,
+            abi: WRAPPER_ABI,
+            functionName: "confidentialBalanceOf",
+            args: [userAddress],
+          })),
+        });
+        if (!alive) return;
+        const hits = pairs.filter((_, i) => {
+          const r = results[i];
+          return r?.status === "success" && !ZERO_HANDLE.test(r.result as string);
+        });
+        setDetected(hits);
+      } catch {
+        if (alive) setDetected([]); // multicall unavailable / RPC down — detect nothing
+      } finally {
+        if (alive) setDetecting(false);
+      }
     })();
     return () => {
       alive = false;
@@ -130,9 +142,13 @@ export function DecryptView() {
     }
 
     setDecryptError(null);
+    setDecryptPhase("checking");
     setBalance({ ...balance, state: "decrypting" });
     try {
-      const raw = await userDecryptHandle(token, handle, userAddress);
+      const raw = await userDecryptHandle(token, handle, userAddress, {
+        coverContracts: pairs.map((p) => p.confidential.address),
+        onPhase: setDecryptPhase,
+      });
       const value = formatUnits(raw, tokenDecimals);
       setBalance({ handle, state: "revealed", revealed: value });
 
@@ -260,6 +276,7 @@ export function DecryptView() {
                     size="lg"
                     onDecrypt={decrypt}
                     decryptLabel="Decrypt with EIP-712"
+                    phase={decryptPhase}
                   />
                 </div>
                 {decryptError && <p className="mt-3 text-sm text-signal-error">{decryptError}</p>}
