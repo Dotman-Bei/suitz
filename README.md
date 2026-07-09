@@ -1,4 +1,4 @@
-# suitz
+# suitz.
 
 **The confidential wrapper registry.** suitz is the canonical home for Zama
 ERC-20 ↔ ERC-7984 wrapper pairs on Sepolia: browse the official onchain
@@ -9,9 +9,9 @@ path of least resistance*.
 > Built for the Zama Developer Program · Season 3, the Confidential Wrapper
 > Registry bounty.
 
-* **Live demo:** https://suitz.xyz/
+* **Live demo:** <https://suitz.xyz/>
 
-* **Network:** Ethereum Sepolia (chain id `11155111`)
+* **Network:** Ethereum Sepolia
 
 * **License:** [MIT](LICENSE)
 
@@ -117,11 +117,11 @@ The app runs against Sepolia directly; there is no mock layer.
   multicall-hydrates token metadata, with a verified in-repo seed as a graceful
   fallback (details below).
 
-* **Confidential compute**: the **Zama SDK** (`@zama-fhe/sdk`). A lazily-created
+* **Confidential compute**: the **Zama SDK** (`@zama-fhe/sdk`). The
   `ZamaSDK` singleton (`lib/fhevm.ts`) powers EIP-712 **user decryption**
-  (Decrypt tab) — one signature per session creates a reusable permit (kept in
+  (Decrypt tab), one signature per session creates a reusable permit (kept in
   memory only, so it dies with the tab; the security-conservative split Zama
-  documents), and every further decrypt that session is silent — and a
+  documents), and every further decrypt that session is silent, and a
   `WrappedToken` orchestrates the two-phase **unwrap** (encrypt → burn →
   public-decryption proof → finalize), persisting interrupted unwraps so they
   stay claimable across reloads. The SDK is dynamically imported so its WASM
@@ -171,6 +171,12 @@ issue.
 
 Add an entry to the `LOCAL_PAIRS` array (this is exactly what the modal's **Copy
 config** button gives you):
+
+&#x20;You can use this custom made token to test out the "Add New Pair" section:
+
+```
+0xBd64e6f2DfD61dBF763a305d88Caad45Bcf33EBd 
+```
 
 ```ts
 export const LOCAL_PAIRS: LocalPairInput[] = [
@@ -232,7 +238,7 @@ the point of being registry-native.
      surfaced as a **claimable pending unwrap** — persisted by the SDK, so the
      claim survives page reloads and is resumed with `resumeUnshield()`.
 
-## Recovering a stuck unwrap
+## Recovering a stuck unwrap (dev)
 
 `finalizeUnwrap` is permissionless (the ERC-20 goes to the recipient recorded at
 unwrap time), so a stuck unwrap can always be finalized: from the UI's "Claim"
