@@ -176,17 +176,38 @@ export async function userDecryptHandle(
     delayMs = 3000,
     coverContracts,
     onPhase,
+    minPhaseMs = 700,
   }: {
     attempts?: number;
     delayMs?: number;
     coverContracts?: readonly string[];
     onPhase?: (phase: DecryptPhase) => void;
+    /** Minimum ms each phase caption stays up, so fast paths stay readable. */
+    minPhaseMs?: number;
   } = {},
 ): Promise<bigint> {
   if (!user) throw new Error("Wallet not connected");
   if (ZERO_HANDLE.test(handle)) return 0n;
 
   const sdk = await getZama();
+
+  // Pace the phase captions so each stays readable — the reused-permit path is
+  // otherwise near-instant. `showPhase` holds the *previous* phase for at least
+  // `minPhaseMs` before switching; `holdLastPhase` keeps the final one up briefly
+  // before the reveal. This only pads gaps the real work didn't already fill, and
+  // never delays the wallet prompt or the relayer round-trip itself.
+  let phaseShownAt = 0;
+  const holdLastPhase = async () => {
+    if (!phaseShownAt) return;
+    const left = minPhaseMs - (Date.now() - phaseShownAt);
+    if (left > 0) await sleep(left);
+  };
+  const showPhase = async (p: DecryptPhase) => {
+    await holdLastPhase();
+    onPhase?.(p);
+    phaseShownAt = Date.now();
+  };
+
   try {
     // One signature per session across every known token. A Zama permit is scoped
     // to a fixed set of contracts, so a permit for just this token would mean a
@@ -194,7 +215,7 @@ export async function userDecryptHandle(
     // whole known set up front and report each phase to `onPhase`, so the UI can
     // tell "awaiting a fresh signature" apart from "reusing the saved session
     // permit". A malformed cover address is skipped rather than failing the decrypt.
-    onPhase?.("checking");
+    await showPhase("checking");
     const scope = [
       ...new Set(
         [token, ...(coverContracts ?? [])].flatMap((a) => {
@@ -215,12 +236,12 @@ export async function userDecryptHandle(
       }
     }
     if (covered) {
-      onPhase?.("reusing");
+      await showPhase("reusing");
     } else {
-      onPhase?.("awaiting-signature");
+      await showPhase("awaiting-signature");
       // Chunks ≤10 contracts per prompt; idempotent for any already-covered subset.
       await sdk.permits.grantPermit(scope);
-      onPhase?.("relaying");
+      await showPhase("relaying");
     }
     const res = await withRelayerRetry(
       () => sdk.decryption.decryptValues([{ encryptedValue: handle, contractAddress: token }]),
@@ -228,6 +249,7 @@ export async function userDecryptHandle(
     );
     const clear = res[handle];
     if (clear === undefined) throw new Error("Decryption returned no value for this handle");
+    await holdLastPhase(); // keep the last phase readable before the value reveals
     return typeof clear === "bigint" ? clear : BigInt(clear as string | number);
   } catch (e) {
     // "No ciphertext" isn't a failure — the account simply never held a balance.
