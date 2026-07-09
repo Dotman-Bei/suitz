@@ -32,7 +32,7 @@ const SECTIONS: DocsNavItem[] = [
 export default function DocsPage() {
   return (
     <div className="relative overflow-hidden pb-24 pt-28 sm:pt-32">
-      <SectionDoodles variant="add" />
+      <SectionDoodles variant="docs" />
       <div className="shell relative">
         <Reveal>
           <Link

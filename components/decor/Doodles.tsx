@@ -259,6 +259,23 @@ const VARIANTS: Record<string, Place[]> = {
     { D: DoodleAsterisk, pos: "left-[5%] top-1/2", size: 28, rot: 6, op: 0.5, dur: "7s", delay: "0.3s" },
     { D: DoodleHex, pos: "right-[5%] top-1/3", size: 30, rot: 14, op: 0.5, dur: "10s", delay: "0.6s" },
   ],
+  // The docs page is many screens tall, so its doodles are pinned to vertical
+  // percentages across the whole length rather than to a single section's box —
+  // otherwise the long scroll reads as bare between the top and bottom.
+  docs: [
+    { D: DoodleCode, pos: "right-[3%] top-[5%]", size: 42, rot: 10, op: 0.7, dur: "8s", anim: "wiggle" },
+    { D: DoodleLock, pos: "left-[2%] top-[12%]", size: 40, rot: -9, op: 0.6, dur: "9s", delay: "0.5s", anim: "wiggle" },
+    { D: DoodleHash, pos: "left-[7%] top-[19%]", size: 34, rot: 8, op: 0.5, dur: "7.5s", delay: "1s" },
+    { D: DoodleBlocks, pos: "right-[4%] top-[27%]", size: 36, rot: -7, op: 0.55, dur: "9s", delay: "0.4s" },
+    { D: DoodleKey, pos: "right-[3%] top-[36%]", size: 38, rot: 12, op: 0.6, dur: "8s", delay: "0.9s", anim: "wiggle" },
+    { D: DoodleRedacted, pos: "left-[2%] top-[44%]", size: 38, rot: -5, op: 0.5, dur: "9s", delay: "0.6s" },
+    { D: DoodleAsterisk, pos: "left-[6%] top-[53%]", size: 30, rot: 7, op: 0.55, dur: "7s", delay: "0.2s" },
+    { D: DoodleHex, pos: "right-[5%] top-[61%]", size: 34, rot: 14, op: 0.5, dur: "10s", delay: "0.7s" },
+    { D: DoodleShield, pos: "right-[3%] top-[70%]", size: 42, rot: 9, op: 0.6, dur: "9s", delay: "0.3s", anim: "wiggle" },
+    { D: DoodleCycle, pos: "left-[3%] top-[78%]", size: 38, rot: -8, op: 0.55, dur: "8s", delay: "1.1s" },
+    { D: DoodlePrint, pos: "left-[8%] top-[87%]", size: 34, rot: 6, op: 0.5, dur: "8.5s", delay: "0.5s" },
+    { D: DoodleLockSpark, pos: "right-[4%] top-[94%]", size: 40, rot: 11, op: 0.6, dur: "8.5s", delay: "0.8s", anim: "wiggle" },
+  ],
 };
 
 export function SectionDoodles({
